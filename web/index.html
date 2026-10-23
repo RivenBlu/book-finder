@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Book Finder</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%231C6B52'/><rect x='9' y='7' width='14' height='18' rx='1.5' fill='%23FBF8F3'/><rect x='12' y='11' width='8' height='1.6' fill='%231C6B52'/><rect x='12' y='15' width='8' height='1.6' fill='%231C6B52'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT@9..144,400..700,0..100&family=Literata:opsz,wght@7..72,400..700&family=Instrument+Sans:wght@400..700&display=swap">
+<link rel="stylesheet" href="/styles.css">
+<script>var t='light';try{t=localStorage.getItem('bf-theme')||'light';}catch(e){}document.documentElement.setAttribute('data-theme',t);</script>
+</head>
+<body>
+<div class="progressbar" id="progressbar" hidden><div></div></div>
+<header class="top">
+  <a class="brand" href="#home"><span class="brand-mark" aria-hidden="true"></span>Book Finder</a>
+  <nav>
+    <a href="#home" data-nav="home">Find</a>
+    <a href="#check" data-nav="check">Check a book</a>
+    <a href="#shelves" data-nav="shelves">Shelves</a>
+    <a href="#profile" data-nav="profile">Reader DNA</a>
+    <a href="#history" data-nav="history">History</a>
+    <a href="#settings" data-nav="settings">Settings</a>
+    <button class="theme" id="themeBtn" title="Switch theme" aria-label="Switch theme"></button>
+  </nav>
+</header>
+<main id="app"></main>
+<div id="toast" class="toast" hidden></div>
+<script type="module" src="/app.js"></script>
+</body>
+</html>

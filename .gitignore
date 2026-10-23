@@ -1,0 +1,12 @@
+# dependencies
+node_modules/
+
+# personal data: the SQLite database, cached covers, settings (may hold an API token)
+data/*
+!data/.gitkeep
+
+# local tooling and scratch
+.claude/
+*.log
+.DS_Store
+Thumbs.db
