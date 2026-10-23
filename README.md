@@ -1,8 +1,24 @@
+<p align="center"><img src="docs/banner.svg" alt="Book Finder" width="100%"></p>
+
 # Book Finder
 
-A personal, single-user tool that interviews you (mostly closed questions, always with an "Other / my own words" box), builds a readers'-advisory brief, researches real data on every candidate, and recommends 3 to 5 books for you *right now*, with honest reasons and what real readers complained about.
+A readers' advisor in a box. It interviews you the way a good librarian would, mostly with closed questions and always with room for your own words, then reads what real readers wrote about every candidate and gives you three to five books for right now, with the reasons and the risks spelled out. Ask it anything about a pick. Let it judge a book you already have in mind. Or ask for a reading path: two to four books in order that take you from where you are to where you want to be.
 
-Runs locally on Windows with Node 24. Uses your **Claude Max** login through the Claude Agent SDK; no API key, no per-token billing.
+It runs on your own computer, keeps everything in one SQLite file, and uses your **Claude Max** login through the Claude Agent SDK. No API key, no per-token bill, no account anywhere.
+
+<p align="center"><img src="docs/screenshots/home.jpg" alt="The home page: what should you read next, with the five ways to start" width="100%"></p>
+
+## What makes it different
+
+- **Mood, not genre.** The interview asks what the book must do for you tonight (distract, comfort, sit with it, thrill, make you think, make you laugh) and translates everything into the appeal vocabulary librarians use: pace, tone, style, character, storyline.
+- **Reviews, not ratings.** Every candidate gets its real Goodreads page: description, the full one-to-five star spread, the most-liked reviews and twenty of the one- and two-star ones. A model reads them and writes what readers love, what they complain about, who should skip it and how the first hundred pages feel.
+- **Honest about the risk.** Each pick names the single most likely reason you would abandon it, and the candidates dropped after reading reviews are listed with the reason.
+- **Trait and state.** Your taste is asked once and kept with its date. Your mood is asked every time. The tool learns which one to trust by watching what you actually finish.
+- **Reading paths.** An arc of books over weeks, each one a step, with checkpoints and swaps.
+
+<p align="center"><img src="docs/screenshots/path.jpg" alt="A reading path: three stages with checkpoints, swaps and transitions" width="100%"></p>
+
+<p align="center"><img src="docs/screenshots/dna.jpg" alt="Reader DNA: mood over time, what you say versus what you do, the appeal fingerprint" width="100%"></p>
 
 ## Run
 
