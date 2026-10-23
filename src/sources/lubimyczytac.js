@@ -5,7 +5,9 @@ const strip = (s = '') => s.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').repla
 export async function searchLubimyczytac(phrase, { limit = 8 } = {}) {
   const r = await fetch(`https://lubimyczytac.pl/szukaj/ksiazki?phrase=${encodeURIComponent(phrase)}`, { headers: H });
   if (!r.ok) throw new Error(`lubimyczytac search ${r.status}`);
-  const html = await r.text();
+  return parseLubimyczytacSearch(await r.text(), { limit });
+}
+export function parseLubimyczytacSearch(html, { limit = 8 } = {}) {
   const cards = html.split('class="book-card book-card--l').slice(1);
   const out = [];
   for (const c of cards) {
@@ -22,7 +24,9 @@ export async function searchLubimyczytac(phrase, { limit = 8 } = {}) {
 export async function fetchLubimyczytacBook(url) {
   const r = await fetch(url, { headers: H });
   if (!r.ok) throw new Error(`lubimyczytac book ${r.status}`);
-  const html = await r.text();
+  return parseLubimyczytacBook(await r.text(), url);
+}
+export function parseLubimyczytacBook(html, url) {
   const blocks = [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].map((m) => { try { return JSON.parse(m[1]); } catch { return null; } }).filter(Boolean);
   let book = blocks.find((b) => b['@type'] === 'Book');
   if (!book) for (const b of blocks) { const g = (b['@graph'] || []).find((x) => x['@type'] === 'Book'); if (g) { book = g; break; } }
@@ -30,9 +34,12 @@ export async function fetchLubimyczytacBook(url) {
   const rating = book.aggregateRating ? Number(String(book.aggregateRating.ratingValue).replace(',', '.')) : null;
   const pages = html.match(/liczba stron:?\s*<\/[^>]+>\s*<[^>]+>\s*(\d+)/i)?.[1];
   const original = strip(html.match(/tytuł oryginału:?\s*<\/[^>]+>\s*<[^>]+>([\s\S]*?)<\//i)?.[1] || '');
+  const translator = strip(html.match(/Tłumacz:?\s*<\/dt>\s*<dd>([\s\S]*?)<\/dd>/i)?.[1] || '');
+  const audiobook = /audiobook/i.test(html);
   return {
     source: 'lubimyczytac', url, title: book.name, author: book.author?.name || null, originalTitle: original || null,
     rating10: rating, ratingsCount: book.aggregateRating?.ratingCount ?? null, pages: pages ? Number(pages) : null,
+    translator: translator || null, audiobook,
     reviews: (book.review || []).map((rv) => ({
       rating: rv.reviewRating?.ratingValue ? Math.round(Number(rv.reviewRating.ratingValue) / 2) : null, // 10 -> 5 scale
       rating10: rv.reviewRating?.ratingValue ? Number(rv.reviewRating.ratingValue) : null,

@@ -27,13 +27,41 @@ Requirements: Node 22.13+ (24 installed), Claude Code CLI logged in (`claude aut
 
 Every answer is stored with a timestamp. Trait answers are superseded, never overwritten, so drift stays visible. State answers (mood, need) are kept per session.
 
+## Reading paths
+
+"A reading path" on the home page asks where you are, where you want to be in a few weeks, how many books (two to four), how long, and how the books should connect (by feeling, by a thread, by contrast, by world). The tool designs an arc with one stage per book, finds candidates for every stage, reads the real reviews, and puts the books in order. Each stage comes with a checkpoint ("if by page 60 the diary structure bores you, take the alternate"), a transition into the next book, and a swap. You can also name a book to build toward; the earlier stages then prepare for its specific demands.
+
+## Closing the loop
+
+At the start of every new session the tool shows the books it last suggested and asks what happened: finished (rate it, one line), dropped (around which page, why), not started yet, or not interested after all. One screen per book, number keys. This is where the tool learns most. The home page shows how many are waiting; "Report" and "Reader DNA" show what the answers add up to:
+
+- **What you say versus what you do**: what you asked for in each mood against what you actually finished, with the appeal factors of the finished and the dropped books.
+- **Appeal fingerprint**: finish rate and your average rating per appeal factor (pace, tone, style, moods, length, demand), across every book with a verdict and a review digest.
+- **Reading report**: month, quarter or year. Picks, finished, dropped and why, which kinds of picks worked, the tool's own confidence when it was right and when it was wrong, how your asks drifted. "Write the report" adds a narrative.
+
+Imported history becomes evidence once it has real data: "Enrich 20 books" on the History page fetches the Goodreads page and reviews for your five-star, one- and two-star and abandoned books, twenty at a time.
+
+## Anchors
+
+After the taste questions the tool reads the books you said you loved and abandoned and asks one closed question per book: which part did the work (the solitude, the prose, the slow reveal), or what killed it. Librarians always ask this; the brief uses the answers instead of guessing.
+
 ## Talking about a book
 
 Every pick on a results page, and every book page, has **Ask about this book**: a conversation grounded in the real reviews, the digest, your profile and (on a results page) the rest of the slate. Starter questions cover the usual worries: how slow the opening is, how dark it gets, whether anything in it would bother you, comparisons with the other picks, Polish editions and audiobooks. Spoilers only when you ask for them. The conversation can look things up on the web for facts outside the reviews (editions, narrators, sequels); switch that off in Settings if you want faster answers. **Ask about these picks** on a results page talks about the whole slate.
 
+**Reading companion**: on a book page, set "I am on page N". From then on the conversation keeps everything after that page secret, and "Is it worth continuing?" is answered from what reviewers say about the later parts and from your own history of dropping books, with honest permission to stop. The same page takes lines you underlined; they feed the Reader DNA. "More by this author" ranks the author's other books for you.
+
 ## Should I read this?
 
 "Check a book" (or the box on the home page) takes a title, fetches its real reviews, and gives a verdict against your whole profile including your latest check-in: Yes / Probably / Maybe / Probably not / No, a fit percentage, what you will love, what will bother you, the biggest risk, the best moment to read it, and sometimes a better alternative for the same itch. Verdicts are kept on the book page; "Judge again" after your taste or mood changes.
+
+## For someone else
+
+"For someone else" asks eight questions about the recipient (who they are, what they loved, what they would hate, how much they read, the occasion, what the book should do, language and format). Your own profile stays out of it. Picks go to the Gifts shelf with a note of who they were for.
+
+## Where to get it
+
+Every pick and book page has links to Goodreads, Google Books, Open Library, StoryGraph, Libby/OverDrive, Audible, lubimyczytac.pl, Legimi and Empik. "Check for a Polish edition" looks the book up on lubimyczytac.pl and records the Polish title, the translator, the rating and whether an audiobook exists.
 
 ## Audio
 
@@ -47,7 +75,7 @@ On a results page: **Copy as text** (Markdown, ready for a note or a message), *
 
 System shelves: Reading now, Up next, Someday, Maybe, Finished, Did not finish, Not for me. Add custom shelves ("Beach", "For when sad", "Gifts"). Finished items take a rating and a verdict; DNF and Not-for-me take a reason. All of it feeds the **Reader DNA** rebuild (Reader DNA page), which infers stable patterns with confidence levels you can delete.
 
-Import your **Goodreads** or **StoryGraph** export CSV (History page) or any CSV with Title, Author, Rating columns. Imports are never recommended again.
+Import your **Goodreads** or **StoryGraph** export CSV (History page) or any CSV with Title, Author, Rating columns. Imports are never recommended again. Rereads are the one exception: when the need is comfort, the long list may include one of your own loved books, marked as a reread.
 
 The Reader DNA also **rebuilds itself once a week** while the app is running, but only when there is new evidence (answers, shelf verdicts, history, feedback). Switch it off in Settings. The Reader DNA page shows **Mood over time**: effort, light/dark and safe/disturbing per check-in as small charts, with the mood and need in words, plus a few plain-language patterns (what you most often arrive as, what you ask for on harder days).
 
@@ -67,6 +95,8 @@ Per-step model tiers (fast = Haiku, smart = Sonnet, best = Opus, max = Fable) in
 - The server binds to `127.0.0.1` only and has no accounts: anyone who can run programs on your computer can use it. Do not expose the port (no port-forwarding, no `0.0.0.0`).
 - The API refuses state-changing requests that carry a foreign `Origin` or `Referer`, and accepts JSON bodies only, so a web page you happen to visit cannot drive the app through your browser.
 - The cover proxy fetches `https` image URLs only, refuses private and loopback hosts, refuses redirects that land on a private host, and keeps only responses that are images.
+- Home-network mode is off by default. When you turn it on in Settings, the app also listens on your local network, and any other device must first open a one-time link that carries a secret token; the token is set as an HttpOnly cookie and checked on every request. Loopback requests never need it. Use it only on a network you trust and never forward the port.
+- A copy of the database is written to `data/backups` every day the app starts (seven kept). Settings has "Export everything" (JSON, without tokens) and an import that merges or replaces.
 - Everything personal lives in `data/` (database, cached covers, settings including an optional Hardcover token). That folder is git-ignored; never commit it. Back it up by copying the file.
 - The model is called through your own Claude Code login; nothing is sent anywhere except Anthropic (your answers and the review material for the book in question), Goodreads, Open Library, lubimyczytac.pl and Hardcover (searches and book pages), and the web search the model may run for a conversation.
 - This repository contains no reader data. To report a security problem, open an issue.
@@ -74,7 +104,7 @@ Per-step model tiers (fast = Haiku, smart = Sonnet, best = Opus, max = Fable) in
 ## Data sources and their terms
 
 - Open Library (free API, polite rate) for search and metadata.
-- Goodreads pages for reviews and rating spreads. There is no Goodreads API; this reads the public page's embedded JSON. Goodreads' terms disallow automated gathering, so this is personal, low-volume (one page per book, cached), and it may break if the page layout changes.
+- Goodreads pages for reviews and rating spreads. There is no Goodreads API; this reads the public page's embedded JSON, and asks the page's own review endpoint for twenty one- and two-star reviews so that complaints rest on real critical reviews, not only on the most-liked ones. Goodreads' terms disallow automated gathering, so this is personal, low-volume (one page per book, cached, throttling respected with retries), and it may break if the page layout changes. A health check runs ten seconds after start and the home page warns when a parser fails; `npm test` runs the parsers against saved fixtures, and `npm run fixtures` refreshes them.
 - lubimyczytac.pl (Polish) likewise: public page JSON-LD, personal use, same caveat.
 - Hardcover.app: optional, sanctioned for personal use, needs a free token.
 
@@ -90,6 +120,10 @@ src/pipeline/interview.js  next-question logic, adaptive follow-ups
 src/pipeline/recommend.js  brief -> long list -> enrich -> digest -> rank
 src/pipeline/reflect.js    Reader DNA rebuild, CSV import
 src/pipeline/talk.js       conversations about a book or slate, "should I read this?" verdicts, Markdown export, weekly auto-rebuild
+src/pipeline/insights.js   loop closer outcomes, reports, history enrichment, "which book by this author next"
+src/pipeline/evidence.js   say-versus-do and the appeal fingerprint (pure functions over the database)
+src/ops.js                 backups, parser health check, export/import, home-network mode
+tests/                     node --test suite with saved parser fixtures
 src/sources/*.js         goodreads, openlibrary, lubimyczytac, hardcover, googlebooks
 web/                     vanilla single-page UI
 ```

@@ -1,6 +1,8 @@
 // Assemble everything the LLM should know about the reader, compactly.
 import { getFacts, listHistory, allShelvedBooks, pastRecommendations, getAnswers, historyStats, moodLog } from '../db.js';
 import { questionById } from '../questions.js';
+import { sayVsDo, fingerprintCompact } from './evidence.js';
+import { listNotes } from '../db.js';
 
 export function traitProfile() {
   const facts = getFacts({ kind: 'trait' });
@@ -77,5 +79,8 @@ export function fullContext(sessionId) {
     past_feedback: feedbackDigest(),
     session_answers: sessionId ? answersDigest(sessionId) : [],
     mood_log: moodLog(12).map((m) => ({ date: m.at.slice(0, 10), mood: m.mood, need: m.need, demand: m.demand, tone: m.tone, safe: m.safe, life: m.life })),
+    say_vs_do: (() => { const s = sayVsDo(); return s.sentences.length ? s.sentences : undefined; })(),
+    appeal_fingerprint: fingerprintCompact() || undefined,
+    underlined: listNotes({ limit: 25 }).map((n) => `${n.title ? n.title + ': ' : ''}"${n.text.slice(0, 240)}"`),
   };
 }

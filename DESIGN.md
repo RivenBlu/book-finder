@@ -44,8 +44,16 @@ A slate answers "what should I read"; it cannot answer the follow-ups a reader a
 ## 13. Seeing drift
 State answers are only useful if the reader can see them change. "Mood over time" draws the three scales (effort, light/dark, safe/disturbing) as single-series strip charts over check-ins, with mood and need in words underneath (no colour coding of seven moods; words are more honest), and states a few deterministic patterns. The weekly automatic rebuild keeps the Reader DNA from going stale without the reader having to remember a button; it runs only when there is new evidence.
 
+## 14. Reading paths
+A slate answers "tonight". A path answers "this month": two to four books whose order is the point. The brief designs stages (from-state, to-state, the job of the book, appeal targets, a page budget), the first stage is chosen for the certainty of being started in today's state, every next stage moves one or two appeal axes by a notch, and the last stage delivers the destination or the named target book. Each stage carries a checkpoint and a swap because paths fail at transitions, not at choices; the loop closer picks up where the reader actually is.
+
+## 15. Say versus do
+Self-report is the weakest evidence the tool has, and the only evidence it had. Outcomes (finished, dropped at page N for a reason, kept, rejected) are joined to the mood and need of the session that produced the pick and to the appeal tags of the book's digest. The result is deterministic and shown as plain sentences; the brief reads it and is told to trust what the reader finished over what they asked for. The appeal fingerprint does the same for imported history once it has real data. Anchor questions remove the other big guess: which part of a loved book did the work.
+
 ## Known limits
 - Goodreads has no API; page parsing may break when their layout changes (`src/sources/goodreads.js`). Their terms disallow automated gathering; this is strictly personal, one page per book, cached.
 - Hardcover (sanctioned) is optional and needs a free token; its review text is not used yet.
+- "Where to get it" is links, not an availability check; library catalogues differ too much to query generically.
+- Author rankings and path alternates are the model's knowledge, verified only when you check a title.
 - Full run is 4-7 minutes with default tiers because the long list and ranking use Opus at high effort. Lower tiers in Settings for speed.
 - Single user, localhost only, no auth.

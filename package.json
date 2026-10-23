@@ -6,9 +6,13 @@
   "description": "Personal AI book finder: psychological interview -> perfect book for now",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "node --watch src/server.js"
+    "dev": "node --watch src/server.js",
+    "test": "node --test tests/app.test.mjs",
+    "fixtures": "node tests/make-fixtures.mjs"
   },
-  "engines": { "node": ">=22.13" },
+  "engines": {
+    "node": ">=22.13"
+  },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.309",
     "zod": "^4.0.0"

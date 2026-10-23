@@ -15,11 +15,26 @@ export function decodeHtml(s = '') {
     .trim();
 }
 
+// Goodreads answers throttled requests with an empty 202. Wait and retry a few times before giving up.
+async function getHtml(url, { tries = 4 } = {}) {
+  let last = '';
+  for (let i = 0; i < tries; i++) {
+    const r = await fetch(url, { headers: H });
+    if (r.status === 429 || r.status === 503) { await sleep(3000 * (i + 1)); last = `goodreads ${r.status}`; continue; }
+    if (!r.ok) throw new Error(`goodreads ${r.status}`);
+    const html = await r.text();
+    if (r.status === 202 || html.length < 2000) { await sleep(2500 * (i + 1) + Math.random() * 1500); last = 'goodreads throttled (empty 202)'; continue; }
+    return html;
+  }
+  throw new Error(last || 'goodreads: no response');
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 export async function searchGoodreads(q, { limit = 8 } = {}) {
   const url = `https://www.goodreads.com/search?q=${encodeURIComponent(q)}`;
-  const r = await fetch(url, { headers: H });
-  if (!r.ok) throw new Error(`goodreads search ${r.status}`);
-  const html = await r.text();
+  return parseGoodreadsSearch(await getHtml(url), { limit });
+}
+export function parseGoodreadsSearch(html, { limit = 8 } = {}) {
   const rows = html.split('itemtype="http://schema.org/Book"').slice(1);
   const out = [];
   for (const row of rows) {
@@ -43,9 +58,9 @@ export async function searchGoodreads(q, { limit = 8 } = {}) {
 
 export async function fetchGoodreadsBook(goodreadsId) {
   const url = `https://www.goodreads.com/book/show/${goodreadsId}`;
-  const r = await fetch(url, { headers: H });
-  if (!r.ok) throw new Error(`goodreads book ${r.status}`);
-  const html = await r.text();
+  return parseGoodreadsBook(await getHtml(url), goodreadsId, { url, critical: true });
+}
+export async function parseGoodreadsBook(html, goodreadsId, { url = `https://www.goodreads.com/book/show/${goodreadsId}`, critical = false } = {}) {
   const i = html.indexOf('__NEXT_DATA__');
   if (i < 0) throw new Error('goodreads: no __NEXT_DATA__ (layout changed or blocked)');
   const start = html.indexOf('>', i) + 1;
@@ -71,6 +86,26 @@ export async function fetchGoodreadsBook(goodreadsId) {
       shelves: (rv.shelving?.taggings || []).map((t) => t?.tag?.name).filter(Boolean).slice(0, 8),
     }))
     .sort((a, b) => b.likes - a.likes);
+  // The page's most-liked reviews skew positive. Ask the site's own review API (key and endpoint come from the page) for
+  // the lowest-rated ones too, so "what readers complain about" rests on real one- and two-star reviews.
+  try {
+    const pp = data?.props?.pageProps || {};
+    const workKey = Object.keys(ap).find((k) => k.startsWith('Work:') && ap[k]?.stats);
+    if (critical && pp.apiKey && workKey) {
+      const endpoint = pp.dataSource?.endpoint || 'https://kxbwmqov6jgg3daaamb744ycu4.appsync-api.us-east-1.amazonaws.com/graphql';
+      const query = 'query getReviews($filters: BookReviewsFilterInput!, $pagination: PaginationInput) { getReviews(filters: $filters, pagination: $pagination) { edges { node { rating text likeCount createdAt } } } }';
+      const body = { operationName: 'getReviews', query, variables: { filters: { resourceType: 'WORK', resourceId: workKey.slice(5), ratingMin: 1, ratingMax: 2 }, pagination: { limit: 20 } } };
+      const g = await fetch(endpoint, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': pp.apiKey, 'User-Agent': UA }, body: JSON.stringify(body), signal: AbortSignal.timeout(10000) });
+      const j = g.ok ? await g.json() : null;
+      const have = new Set(reviews.map((rv) => rv.text.slice(0, 80)));
+      for (const e of j?.data?.getReviews?.edges || []) {
+        const n = e?.node; if (!n?.text) continue;
+        const text = decodeHtml(n.text).slice(0, 2500);
+        if (have.has(text.slice(0, 80)) || text.length < 60) continue;
+        reviews.push({ rating: n.rating ?? null, text, likes: n.likeCount ?? 0, createdAt: n.createdAt ? new Date(n.createdAt).toISOString().slice(0, 10) : null, spoiler: false, shelves: [], critical: true });
+      }
+    }
+  } catch {}
   const dist = stats.ratingsCountDist || null; // [1*,2*,3*,4*,5*]
   return {
     source: 'goodreads',

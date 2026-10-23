@@ -279,6 +279,107 @@ export const CHECKIN = [
 // Quick mode: the minimum that still produces a good slate when the trait profile already exists.
 export const QUICK_IDS = ['mood_now', 'need_now', 'demand_now', 'time_now', 'familiar_now', 'wish_now'];
 
+// Reading path: a few books over weeks that form an arc, from where you are to where you want to be.
+export const PATH = [
+  {
+    id: 'path_arc', layer: 'path', type: 'single',
+    text: 'What journey do you want these books to take you on?',
+    help: 'A path is two to four books in order. Each one moves you a step; the last one is where you want to arrive.',
+    options: [
+      S('numb_to_feeling', 'From numb to feeling something again', ''),
+      S('wound_to_calm', 'From wound-up to calm', ''),
+      S('heavy_to_light', 'From heavy to light', 'Earn the laugh'),
+      S('scattered_to_focus', 'From scattered to able to sit with a long book', 'Short and gripping first, then slower and bigger'),
+      S('through_loss', 'Through a loss, gently', ''),
+      S('deepen', 'Deeper into one theme or question', ''),
+      S('build_up', 'Build up to a demanding book I keep avoiding', 'Name it in the next questions'),
+      S('widen', 'Out of my comfort zone, one step at a time', ''),
+      S('rest', 'A month of pure rest and pleasure', ''),
+    ],
+  },
+  {
+    id: 'path_to', layer: 'path', type: 'text',
+    text: 'Where do you want to be at the end of it? One sentence.',
+    help: 'How you want to feel, or what you want to be able to do, or understand.',
+    placeholder: 'e.g. calm enough to read a long Russian novel; curious again; able to think about my father without flinching',
+  },
+  {
+    id: 'path_books', layer: 'path', type: 'single',
+    text: 'How many books?',
+    options: [S('2', 'Two', 'A short arc'), S('3', 'Three', 'The classic shape: ease in, the turn, the arrival'), S('4', 'Four', 'A longer climb')],
+  },
+  {
+    id: 'path_weeks', layer: 'path', type: 'single',
+    text: 'Over how long?',
+    options: [S('3', 'Three weeks'), S('4', 'A month'), S('6', 'Six weeks'), S('8', 'Two months'), S('open', 'No deadline')],
+  },
+  {
+    id: 'path_link', layer: 'path', type: 'single',
+    text: 'How should the books connect?',
+    options: [
+      S('feeling', 'By feeling', 'Each book shifts the mood one notch'),
+      S('theme', 'By a thread', 'One theme, place or question running through'),
+      S('contrast', 'By contrast', 'Deliberate opposites that talk to each other'),
+      S('world', 'By world', 'Same place, era or author circle'),
+      S('free', 'Let the tool decide', ''),
+    ],
+  },
+  {
+    id: 'path_theme', layer: 'path', type: 'text',
+    text: 'A theme, place, question, or the book you want to build toward? Optional.',
+    placeholder: 'e.g. the sea; work and dignity; "Anna Karenina" at the end; Polish reportage',
+  },
+];
+export const PATH_CHECKIN_IDS = ['mood_now', 'life_now', 'demand_now', 'time_now', 'lang_format_now', 'safe_now'];
+
+// Gift mode: a short interview about someone else. The reader's own profile is not used.
+export const GIFT = [
+  {
+    id: 'gift_who', layer: 'gift', type: 'text', required: true,
+    text: 'Who is it for? Name or relationship, roughly their age, and anything that matters.',
+    placeholder: 'e.g. my brother, 40, engineer, new dad, dry sense of humour',
+  },
+  {
+    id: 'gift_loved', layer: 'gift', type: 'text',
+    text: 'Books, films or series they loved. Guesses are fine.',
+    help: 'What they talk about, reread, or quote. If you do not know, say what they do with their evenings.',
+    placeholder: 'e.g. loved The Martian, watches every Scandinavian crime series, reread Hobbit as a kid',
+  },
+  {
+    id: 'gift_avoid', layer: 'gift', type: 'multi',
+    text: 'What would they hate, or what must the book not be?',
+    options: [
+      S('dark', 'Nothing dark or bleak'), S('romance', 'No romance'), S('long', 'Nothing long'), S('series', 'No series'),
+      S('explicit', 'Nothing explicit'), S('literary', 'Nothing too "literary"'), S('genre', 'Nothing too genre'), S('nonfiction', 'No nonfiction'), S('fiction', 'No fiction'),
+    ],
+  },
+  {
+    id: 'gift_reading', layer: 'gift', type: 'single',
+    text: 'How much do they read?',
+    options: [S('lot', 'A lot', 'Will have read the obvious things'), S('some', 'Now and then', ''), S('rarely', 'Rarely', 'The book must hook fast'), S('lapsed', 'Used to, stopped', 'Something to bring them back')],
+  },
+  {
+    id: 'gift_occasion', layer: 'gift', type: 'single',
+    text: 'What is the occasion?',
+    options: [S('birthday', 'Birthday'), S('holiday', 'Holiday / Christmas'), S('hard_time', 'A hard time', 'Illness, loss, burnout'), S('thanks', 'A thank-you'), S('just', 'Just because'), S('travel', 'A trip')],
+  },
+  {
+    id: 'gift_do', layer: 'gift', type: 'single',
+    text: 'What should the book do for them?',
+    options: [S('comfort', 'Comfort them'), S('laugh', 'Make them laugh'), S('think', 'Make them think'), S('thrill', 'Grip them'), S('beauty', 'Give them something beautiful'), S('learn', 'Teach them something'), S('feel', 'Move them'), S('impress', 'Show you know them')],
+  },
+  {
+    id: 'gift_format', layer: 'gift', type: 'multi',
+    text: 'Language and format?',
+    options: [S('en', 'English'), S('pl', 'Polish'), S('paper', 'Paper'), S('ebook', 'E-book'), S('audio', 'Audio')],
+  },
+  {
+    id: 'gift_note', layer: 'gift', type: 'text',
+    text: 'Anything else? What they are going through, what you want the gift to say.',
+    placeholder: 'e.g. she just moved abroad and is lonely; I want it to say "I see you"',
+  },
+];
+
 export function questionById(id) {
-  return [...ONBOARDING, ...CHECKIN].find((q) => q.id === id) || null;
+  return [...ONBOARDING, ...CHECKIN, ...PATH, ...GIFT].find((q) => q.id === id) || null;
 }

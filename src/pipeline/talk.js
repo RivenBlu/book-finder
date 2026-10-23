@@ -55,7 +55,7 @@ export function loadChat({ bookId, sessionId }) {
 }
 
 /** Streams a reply. onEvent gets {type:'delta',text} | {type:'tool',name} | {type:'done',chat} | {type:'error',message}. */
-export async function chat({ bookId, sessionId, message, onEvent }) {
+export async function chat({ bookId, sessionId, message, page = null, onEvent }) {
   const book = bookId ? DB.getBook(bookId) : null;
   if (bookId && !book) throw new Error('no such book');
   const existing = DB.getChat(bookId || null, sessionId || null);
@@ -68,13 +68,15 @@ export async function chat({ bookId, sessionId, message, onEvent }) {
     recommendation: book && sessionId ? DB.getRecommendations(sessionId).find((r) => r.book_id === book.id)?.fit || null : undefined,
     slate: sessionId ? slateMaterial(sessionId) : undefined,
     verdict: book ? DB.latestVerdict(book.id)?.verdict || undefined : undefined,
+    reading_progress: page ? { page, of: book?.pages || null } : undefined,
+    reader_dnf_history: page ? DB.getFacts({ kind: 'trait' }).filter((f) => f.key.startsWith('dnf_') || f.key === 'abandoned_books').map((f) => f.value?.text || f.value?.note || JSON.stringify(f.value)).slice(0, 8) : undefined,
   };
   const transcript = messages.slice(0, -1).slice(-16).map((m) => `${m.role === 'user' ? 'READER' : 'ADVISOR'}: ${m.text}`).join('\n\n');
   const prompt = `MATERIAL (JSON):\n${JSON.stringify(material, null, 1)}\n\n${transcript ? `CONVERSATION SO FAR:\n${transcript}\n\n` : ''}READER: ${message}\n\nReply as the advisor.`;
   const web = DB.getSetting('chat_web', 'true') === 'true';
   let reply;
   try {
-    const { data } = await ask({ system: chatSystem({ scope }), prompt, tier: DB.getSetting('tier_chat', 'smart'), effort: 'medium', web, maxTurns: web ? 8 : 2, onEvent });
+    const { data } = await ask({ system: chatSystem({ scope, page }), prompt, tier: DB.getSetting('tier_chat', 'smart'), effort: 'medium', web, maxTurns: web ? 8 : 2, onEvent });
     reply = String(data || '').trim();
   } catch (e) {
     messages.pop();
@@ -114,10 +116,12 @@ export function exportSlateMarkdown(sessionId) {
   L.push(`# Books for ${new Date(s.started_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}`, '');
   if (b.reader_now) L.push(`_${b.reader_now}_`, '');
   if (b.note_to_reader) L.push(b.note_to_reader, '');
+  if (b.stages?.length) L.push(`**The arc:** ${b.arc || ''}. ${b.destination ? 'Destination: ' + b.destination : ''}`, '');
   picks.forEach((r, i) => {
     const f = r.fit;
-    L.push(`## ${i + 1}. ${r.title}`, `${r.author}${r.year ? `, ${r.year}` : ''}${r.pages ? `, ${r.pages} pages` : ''} · ${(r.slot || '').replace(/_/g, ' ')}${r.rating ? ` · ★ ${Number(r.rating).toFixed(2)} from ${Number(r.ratings_count || 0).toLocaleString('en-GB')} ratings` : ''}`, '');
+    L.push(`## ${f.path ? 'Stage ' + (i + 1) + ': ' : i + 1 + '. '}${r.title}`, `${r.author}${r.year ? `, ${r.year}` : ''}${r.pages ? `, ${r.pages} pages` : ''} · ${(r.slot || '').replace(/_/g, ' ')}${r.rating ? ` · ★ ${Number(r.rating).toFixed(2)} from ${Number(r.ratings_count || 0).toLocaleString('en-GB')} ratings` : ''}`, '');
     L.push(`**${f.headline}**`, '', f.why_now, '');
+    if (f.path) { if (f.checkpoint) L.push(`- **Checkpoint:** ${f.checkpoint}`); if (f.transition) L.push(`- **Then:** ${f.transition}`); if (f.alternate) L.push(`- **Alternate:** ${f.alternate.title} (${f.alternate.author}), ${f.alternate.when}`); }
     L.push(`- **Readers love:** ${f.what_readers_love}`, `- **Readers complain:** ${f.what_readers_complain}`, `- **Risk for you:** ${f.risk_for_you}`, `- **The opening:** ${f.first_pages}`, `- **Read if:** ${f.read_if}`, `- **Skip if:** ${f.skip_if}`);
     if (f.audio_note) L.push(`- **Audio:** ${f.audio_note}`);
     if (r.url) L.push(`- ${r.url}`);
