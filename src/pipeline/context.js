@@ -1,8 +1,28 @@
 // Assemble everything the LLM should know about the reader, compactly.
-import { getFacts, listHistory, allShelvedBooks, pastRecommendations, getAnswers, historyStats, moodLog } from '../db.js';
-import { questionById } from '../questions.js';
-import { sayVsDo, fingerprintCompact } from './evidence.js';
-import { listNotes } from '../db.js';
+import { getFacts, listHistory, allShelvedBooks, pastRecommendations, getAnswers, historyStats, moodLog, listDebriefs, listNotes } from '../db.js';
+import { questionById, DEBRIEF } from '../questions.js';
+import { sayVsDo, fingerprintCompact, debriefPatterns } from './evidence.js';
+
+// One line per after-reading debrief, newest first: the freshest evidence the tool has.
+export function debriefLine(d) {
+  const a = d.answers || {};
+  const lab = (qid, ids) => { const q = DEBRIEF.find((x) => x.id === qid); return (Array.isArray(ids) ? ids : ids ? [ids] : []).map((id) => q?.options?.find((o) => o.id === id)?.label || String(id)); };
+  const parts = [`${d.title}${d.author ? ' - ' + d.author : ''}: ${d.outcome === 'dropped' ? `dropped${d.page ? ' around page ' + d.page : ''}` : 'finished'}${d.rating ? `, ${d.rating}/5` : ''} (${String(d.created_at).slice(0, 10)})`];
+  if (a.worked?.length) parts.push(`worked: ${lab('worked', a.worked).join(', ')}`);
+  if (a.bothered?.length) parts.push(`bothered: ${lab('bothered', a.bothered).join(', ')}`);
+  if (a.fit_mood) parts.push(`did the job: ${a.fit_mood.replace(/_/g, ' ')}`);
+  if (a.warning) parts.push(`tool's warning was: ${a.warning.replace(/_/g, ' ')}`);
+  if (a.more_like) parts.push(`next: ${lab('more_like', a.more_like).join('')}`);
+  if (a.followup?.question) parts.push(`asked "${a.followup.question}" -> ${(a.followup.labels || []).join(', ')}`);
+  if (d.text) parts.push(`own words: "${String(d.text).slice(0, 300)}"`);
+  return parts.join(' | ');
+}
+export function debriefsDigest(limit = 30) {
+  const rows = listDebriefs({ limit });
+  if (!rows.length) return undefined;
+  const p = debriefPatterns();
+  return { note: 'What the reader said right after each book. Freshest evidence; trust it over self-described taste.', patterns: p.sentences.length ? p.sentences : undefined, books: rows.map(debriefLine) };
+}
 
 export function traitProfile() {
   const facts = getFacts({ kind: 'trait' });
@@ -79,6 +99,7 @@ export function fullContext(sessionId) {
     past_feedback: feedbackDigest(),
     session_answers: sessionId ? answersDigest(sessionId) : [],
     mood_log: moodLog(12).map((m) => ({ date: m.at.slice(0, 10), mood: m.mood, need: m.need, demand: m.demand, tone: m.tone, safe: m.safe, life: m.life })),
+    after_reading: debriefsDigest(),
     say_vs_do: (() => { const s = sayVsDo(); return s.sentences.length ? s.sentences : undefined; })(),
     appeal_fingerprint: fingerprintCompact() || undefined,
     underlined: listNotes({ limit: 25 }).map((n) => `${n.title ? n.title + ': ' : ''}"${n.text.slice(0, 240)}"`),

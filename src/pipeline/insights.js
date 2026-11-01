@@ -2,11 +2,12 @@
 // enriching imported history with real data, and "which book by this author next".
 import * as DB from '../db.js';
 import { ask } from '../llm.js';
-import { REPORT_SCHEMA, REPORT_SYSTEM, AUTHOR_NEXT_SCHEMA, AUTHOR_NEXT_SYSTEM } from '../prompts.js';
+import { REPORT_SCHEMA, REPORT_SYSTEM, AUTHOR_NEXT_SCHEMA, AUTHOR_NEXT_SYSTEM, DEBRIEF_FOLLOWUP_SCHEMA, DEBRIEF_FOLLOWUP_SYSTEM } from '../prompts.js';
 import { enrichCandidate, digestBook } from './recommend.js';
-import { readerDna, traitProfile, historyDigest } from './context.js';
-import { sayVsDo, fingerprint, fingerprintCompact, counter } from './evidence.js';
-export { sayVsDo, fingerprint, fingerprintCompact };
+import { readerDna, traitProfile, historyDigest, debriefLine } from './context.js';
+import { sayVsDo, fingerprint, fingerprintCompact, counter, debriefPatterns } from './evidence.js';
+import { debriefQuestions, DEBRIEF } from '../questions.js';
+export { sayVsDo, fingerprint, fingerprintCompact, debriefPatterns };
 
 // ---------- loop closer ----------
 export function followups(excludeSessionId = null) { return DB.pendingFollowups(excludeSessionId, 6); }
@@ -37,6 +38,70 @@ export function recordOutcome(recId, { outcome, page = null, reason = null, rati
     DB.addToShelf({ shelfId: shelf('Up next').id, bookId: rec.book_id, note: reason, exclusiveStatus: true });
   }
   return { ok: true };
+}
+
+// ---------- after-reading debrief ----------
+/** The questions for one book: closed, branching on finished/dropped, plus the tool's own named risk when the book was a pick. */
+export function debriefPlan({ bookId, recId = null, outcome = 'finished' }) {
+  const book = DB.getBook(bookId);
+  if (!book) throw new Error('no such book');
+  const rec = recId ? DB.db.prepare('SELECT r.*, s.mode FROM recommendations r JOIN sessions s ON s.id = r.session_id WHERE r.id = ?').get(recId) : null;
+  const fit = rec ? JSON.parse(rec.fit || '{}') : {};
+  const previous = DB.latestDebrief(bookId);
+  return {
+    book: { id: book.id, title: book.title, author: book.author, cover: book.cover, pages: book.pages, year: book.year, description: (book.description || '').slice(0, 600), one_line: book.review_digest?.one_line || null },
+    rec: rec ? { id: rec.id, session_id: rec.session_id, feedback: rec.feedback, outcome: rec.outcome ? JSON.parse(rec.outcome) : null, headline: fit.headline || null, risk_for_you: fit.risk_for_you || null, created_at: rec.created_at } : null,
+    previous: previous ? { id: previous.id, outcome: previous.outcome, rating: previous.rating, created_at: previous.created_at, text: previous.text, answers: previous.answers } : null,
+    questions: debriefQuestions({ outcome, risk: fit.risk_for_you || null }),
+  };
+}
+
+/** Save a debrief. Also records the outcome on the recommendation (when there is one) or shelves the book directly,
+ *  so a debrief from the book page, the shelves or the home page lands in the same places as one from the loop closer. */
+export function recordDebrief({ bookId, recId = null, outcome, rating = null, page = null, reason = null, answers = {}, text = null }) {
+  if (!['finished', 'dropped'].includes(outcome)) throw new Error('outcome must be finished or dropped');
+  const book = DB.getBook(bookId);
+  if (!book) throw new Error('no such book');
+  const words = text?.trim() || reason?.trim() || null;
+  const rec = recId ? DB.db.prepare('SELECT * FROM recommendations WHERE id = ? AND book_id = ?').get(recId, bookId) : null;
+  if (rec) recordOutcome(rec.id, { outcome, page, reason: words, rating });
+  else {
+    const shelves = DB.listShelves();
+    const name = outcome === 'finished' ? 'Finished' : 'Did not finish';
+    const note = outcome === 'dropped' ? [page ? `stopped around page ${page}` : null, words].filter(Boolean).join(': ') || null : null;
+    DB.addToShelf({ shelfId: shelves.find((s) => s.name === name).id, bookId, note, exclusiveStatus: true });
+    if (outcome === 'dropped' && words) DB.setFact({ key: 'dnf_' + bookId, value: { note, page }, kind: 'trait', confidence: 0.7, source: 'feedback', note: 'Dropped a book' });
+  }
+  const id = DB.addDebrief({ bookId, recId: rec?.id || null, outcome, rating, page, answers, text: words });
+  // The shelf item carries the structured verdict too, so the shelves page and the Reader DNA rebuild see it.
+  const item = DB.shelfItemFor(bookId, outcome === 'finished' ? 'Finished' : 'Did not finish');
+  if (item) DB.updateShelfItem(item.id, { my_rating: rating || null, my_verdict: { text: words, ...compactAnswers(answers), debrief_id: id } });
+  // One fact per book, superseding older ones: the compact line the prompts read, visible and deletable on the profile page.
+  const d = DB.listDebriefs({ bookId, limit: 1 })[0];
+  DB.setFact({ key: 'after_' + bookId, value: { line: debriefLine(d), outcome, rating }, kind: 'trait', confidence: 0.9, source: 'feedback', note: `After reading: ${book.title}` });
+  // Mirror into reading history so imports and debriefs count the same way in statistics.
+  DB.addHistory({ bookId, title: book.title, author: book.author, myRating: rating, myReview: words, dateRead: DB.now().slice(0, 10), status: outcome === 'finished' ? 'read' : 'dnf', tags: [], source: 'interview' });
+  return { id, debrief: d };
+}
+function compactAnswers(a) {
+  const lab = (qid, ids) => { const q = DEBRIEF.find((x) => x.id === qid); return (Array.isArray(ids) ? ids : ids ? [ids] : []).map((id) => q?.options?.find((o) => o.id === id)?.label || id); };
+  return { worked: lab('worked', a.worked), bothered: lab('bothered', a.bothered), fit_mood: a.fit_mood || null, warning: a.warning || null, more_like: a.more_like || null };
+}
+
+/** One more question written for this book from the closed answers, or ask=false when nothing is left to resolve. */
+export async function debriefFollowup({ bookId, recId = null, outcome, answers = {}, text = null, rating = null, page = null }) {
+  const book = DB.getBook(bookId);
+  if (!book) throw new Error('no such book');
+  const plan = debriefPlan({ bookId, recId, outcome });
+  const given = plan.questions.filter((q) => q.type !== 'text').map((q) => {
+    const ids = Array.isArray(answers[q.id]) ? answers[q.id] : answers[q.id] ? [answers[q.id]] : [];
+    return `${q.text} -> ${ids.map((id) => q.options.find((o) => o.id === id)?.label || id).join(', ') || '(skipped)'}`;
+  });
+  const d = book.review_digest;
+  const prompt = `BOOK: ${book.title} by ${book.author} (${book.year || '?'}, ${book.pages || '?'} pages). Genres: ${book.genres.slice(0, 6).join(', ')}.\nDESCRIPTION: ${(book.description || '').slice(0, 900)}\nREVIEW DIGEST: ${d ? JSON.stringify({ one_line: d.one_line, praise: d.praise, complaints: d.complaints, first_100_pages: d.first_100_pages, appeal: d.appeal }) : '(none)'}\n${plan.rec?.risk_for_you ? `THE TOOL'S NAMED RISK WHEN IT RECOMMENDED IT: ${plan.rec.risk_for_you}\n` : ''}\nOUTCOME: ${outcome}${rating ? `, rated ${rating}/5` : ''}${page ? `, stopped around page ${page}` : ''}\nCLOSED ANSWERS:\n${given.join('\n')}\nOWN WORDS: ${text?.trim() || '(none)'}\n\nWrite the one follow-up question, or set ask=false.`;
+  const { data } = await ask({ system: DEBRIEF_FOLLOWUP_SYSTEM, prompt, schema: DEBRIEF_FOLLOWUP_SCHEMA, tier: DB.getSetting('tier_adaptive', 'smart'), effort: 'low' });
+  if (!data.ask) return { ask: false, note: data.note_for_profile || null };
+  return { ask: true, question: { id: 'followup', layer: 'debrief', type: data.type, text: data.text, help: data.help || '', options: data.options.map((o, j) => ({ id: o.id || `o${j + 1}`, label: o.label, hint: o.hint || '' })) }, note: data.note_for_profile || null };
 }
 
 // ---------- periodic report ----------

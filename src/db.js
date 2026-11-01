@@ -156,6 +156,20 @@ CREATE TABLE IF NOT EXISTS verdicts (
   verdict TEXT NOT NULL,          -- JSON
   created_at TEXT NOT NULL
 );
+
+-- After-reading debriefs: the short interview right after finishing or dropping a book. Freshest evidence there is.
+CREATE TABLE IF NOT EXISTS debriefs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  book_id INTEGER NOT NULL REFERENCES books(id),
+  rec_id INTEGER REFERENCES recommendations(id) ON DELETE SET NULL,
+  outcome TEXT NOT NULL,          -- finished | dropped
+  rating INTEGER,
+  page INTEGER,
+  answers TEXT NOT NULL,          -- JSON {worked:[], bothered:[], fit_mood, warning, more_like, followup:{question, labels}}
+  text TEXT,                      -- the reader's own words
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_debriefs_book ON debriefs(book_id);
 `);
 
 // Columns added after the first release (CREATE TABLE IF NOT EXISTS does not alter existing tables).
@@ -222,6 +236,11 @@ export function deleteFact(id) { db.prepare('DELETE FROM profile_facts WHERE id 
 export function createSession(mode = 'full') {
   const r = db.prepare('INSERT INTO sessions(started_at, status, mode) VALUES (?, ?, ?)').run(now(), 'interview', mode);
   return Number(r.lastInsertRowid);
+}
+// Sessions opened and abandoned before the first answer are noise, not history: drop them once they are a few minutes old.
+export function pruneEmptySessions(olderThanMinutes = 10) {
+  const cutoff = new Date(Date.now() - olderThanMinutes * 60_000).toISOString();
+  return db.prepare(`DELETE FROM sessions WHERE status = 'interview' AND started_at < ? AND NOT EXISTS (SELECT 1 FROM answers a WHERE a.session_id = sessions.id)`).run(cutoff).changes;
 }
 export function getSession(id) {
   const s = db.prepare('SELECT * FROM sessions WHERE id = ?').get(id);
@@ -314,11 +333,27 @@ export function setRecommendationFeedback(id, feedback, note = null, outcome = n
 }
 // Picks from earlier sessions that never got an outcome: the loop-closer screen asks about them.
 export function pendingFollowups(excludeSessionId = null, limit = 6) {
-  return db.prepare(`SELECT r.id, r.session_id, r.book_id, r.slot, r.fit, r.created_at, b.title, b.author, b.cover, b.pages, s.mode
+  return db.prepare(`SELECT r.id, r.session_id, r.book_id, r.slot, r.fit, r.created_at, b.title, b.author, b.cover, b.pages, b.year, b.url, b.description, b.review_digest, s.mode
                      FROM recommendations r JOIN books b ON b.id = r.book_id JOIN sessions s ON s.id = r.session_id
                      WHERE r.feedback IS NULL AND r.slot != 'runner_up' AND s.mode != 'gift' AND r.session_id != ? AND r.created_at < ?
                      ORDER BY r.id DESC LIMIT ?`).all(excludeSessionId ?? -1, new Date(Date.now() - 36e5).toISOString(), limit)
-    .map((r) => ({ ...r, fit: P(r.fit) }));
+    .map((r) => ({ ...r, fit: P(r.fit), description: (r.description || '').slice(0, 600), review_digest: compactDigest(P(r.review_digest)) }));
+}
+function compactDigest(d) {
+  return d ? { one_line: d.one_line, first_100_pages: d.first_100_pages, who_loves_it: d.who_loves_it, who_should_skip: d.who_should_skip, appeal: d.appeal } : null;
+}
+// Every session that produced picks, newest first, with the picks and what became of each: the "Past picks" page.
+export function listSessionsWithPicks(limit = 100) {
+  const sessions = db.prepare("SELECT * FROM sessions WHERE status IN ('recommended', 'researching') ORDER BY id DESC LIMIT ?").all(limit)
+    .map((s) => ({ ...s, brief: P(s.brief), progress: undefined, adaptive: undefined, anchors: undefined }));
+  const picksStmt = db.prepare(`SELECT r.id, r.book_id, r.rank, r.slot, r.feedback, r.feedback_note, r.outcome, r.fit, b.title, b.author, b.cover, b.pages, b.year,
+                                       (SELECT d.id FROM debriefs d WHERE d.book_id = r.book_id ORDER BY d.id DESC LIMIT 1) AS debrief_id
+                                FROM recommendations r JOIN books b ON b.id = r.book_id WHERE r.session_id = ? ORDER BY r.rank`);
+  return sessions.map((s) => ({
+    ...s,
+    reader_now: s.brief?.reader_now || s.summary || null, brief: undefined,
+    picks: picksStmt.all(s.id).map((r) => { const f = P(r.fit) || {}; return { ...r, outcome: P(r.outcome), fit: { kind: f.kind, headline: f.headline, risk_for_you: f.risk_for_you } }; }),
+  }));
 }
 // Every recommendation with its outcome, session state and book appeal: the "say versus do" evidence.
 export function outcomeRows() {
@@ -364,6 +399,12 @@ export function shelfItemFor(bookId, shelfName) {
   return db.prepare('SELECT i.* FROM shelf_items i JOIN shelves s ON s.id = i.shelf_id WHERE i.book_id = ? AND s.name = ?').get(bookId, shelfName) || null;
 }
 export function removeFromShelf(id) { db.prepare('DELETE FROM shelf_items WHERE id = ?').run(id); }
+// Books on "Reading now", with the pick that brought them when there was one (for the debrief entry on the home page).
+export function readingNow() {
+  return db.prepare(`SELECT i.book_id, i.page, i.added_at, b.title, b.author, b.cover, b.pages,
+                            (SELECT r.id FROM recommendations r WHERE r.book_id = i.book_id AND r.slot != 'runner_up' ORDER BY r.id DESC LIMIT 1) AS rec_id
+                     FROM shelf_items i JOIN shelves s ON s.id = i.shelf_id JOIN books b ON b.id = i.book_id WHERE s.name = 'Reading now' ORDER BY i.added_at DESC`).all();
+}
 export function shelvesForBook(bookId) {
   return db.prepare('SELECT s.id, s.name FROM shelf_items i JOIN shelves s ON s.id = i.shelf_id WHERE i.book_id = ?').all(bookId);
 }
@@ -394,10 +435,26 @@ export function signalBooks() {
     rows.push({ book_id: i.book_id, title: i.title, source: 'shelf', rating: i.my_rating, finished: i.shelf === 'Finished', dnf: i.shelf === 'Did not finish', rejected: i.shelf === 'Not for me', pages: i.pages, digest: P(i.review_digest) });
   for (const r of db.prepare(`SELECT r.book_id, r.feedback, r.outcome, b.title, b.review_digest, b.pages FROM recommendations r JOIN books b ON b.id = r.book_id WHERE r.feedback IN ('finished', 'dropped') AND b.review_digest IS NOT NULL`).all())
     rows.push({ book_id: r.book_id, title: r.title, source: 'outcome', rating: P(r.outcome)?.rating || null, finished: r.feedback === 'finished', dnf: r.feedback === 'dropped', pages: r.pages, digest: P(r.review_digest) });
+  for (const d of db.prepare(`SELECT d.book_id, d.outcome, d.rating, b.title, b.review_digest, b.pages FROM debriefs d JOIN books b ON b.id = d.book_id WHERE b.review_digest IS NOT NULL ORDER BY d.id`).all())
+    rows.push({ book_id: d.book_id, title: d.title, source: 'debrief', rating: d.rating || null, finished: d.outcome === 'finished', dnf: d.outcome === 'dropped', pages: d.pages, digest: P(d.review_digest) });
+  // A debrief is the reader's own fresh account and wins; a shelf verdict beats an import.
   const seen = new Map();
-  for (const r of rows) { const k = r.book_id; if (!seen.has(k) || (r.source === 'shelf')) seen.set(k, r); }
+  const weight = { history: 0, outcome: 1, shelf: 2, debrief: 3 };
+  for (const r of rows) { const k = r.book_id; if (!seen.has(k) || weight[r.source] >= weight[seen.get(k).source]) seen.set(k, r); }
   return [...seen.values()];
 }
+
+// ---------- after-reading debriefs ----------
+export function addDebrief({ bookId, recId = null, outcome, rating = null, page = null, answers = {}, text = null }) {
+  const r = db.prepare('INSERT INTO debriefs(book_id, rec_id, outcome, rating, page, answers, text, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(bookId, recId, outcome, rating, page, J(answers), text, now());
+  return Number(r.lastInsertRowid);
+}
+export function listDebriefs({ bookId = null, limit = 100 } = {}) {
+  const sql = `SELECT d.*, b.title, b.author, b.cover, b.pages, b.review_digest FROM debriefs d JOIN books b ON b.id = d.book_id ${bookId ? 'WHERE d.book_id = ?' : ''} ORDER BY d.id DESC LIMIT ?`;
+  return db.prepare(sql).all(...(bookId ? [bookId, limit] : [limit])).map((d) => ({ ...d, answers: P(d.answers) || {}, review_digest: P(d.review_digest) }));
+}
+export function latestDebrief(bookId) { return listDebriefs({ bookId, limit: 1 })[0] || null; }
 
 // ---------- reading history ----------
 export function addHistory(h) {
@@ -472,6 +529,6 @@ export function moodLog(limit = 60) {
 export function evidenceStamp() {
   const r = db.prepare(`SELECT (SELECT COUNT(*) FROM answers) AS a, (SELECT COUNT(*) FROM reading_history) AS h,
     (SELECT COUNT(*) || '/' || COALESCE(MAX(updated_at), '') FROM shelf_items) AS s,
-    (SELECT COUNT(*) FROM recommendations WHERE feedback IS NOT NULL) AS f`).get();
-  return `${r.a}|${r.h}|${r.s}|${r.f}`;
+    (SELECT COUNT(*) FROM recommendations WHERE feedback IS NOT NULL) AS f, (SELECT COUNT(*) FROM debriefs) AS d`).get();
+  return `${r.a}|${r.h}|${r.s}|${r.f}|${r.d}`;
 }

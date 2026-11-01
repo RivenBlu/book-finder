@@ -114,6 +114,70 @@ test('loop closer: outcomes shelve the book, write facts and feed say-versus-do 
   assert.ok(quiet && quiet.n === 2 && quiet.finished === 1 && quiet.dnf === 1);
 });
 
+test('after-reading debrief: plan branches on outcome and risk, save shelves and feeds context, fingerprint and past picks', async () => {
+  const { debriefPlan, recordDebrief } = await import('../src/pipeline/insights.js');
+  const { fullContext } = await import('../src/pipeline/context.js');
+  const { debriefPatterns } = await import('../src/pipeline/evidence.js');
+  const sid = DB.createSession('full');
+  const digest = { one_line: 'z', appeal: { pace: 'intensifying', tone: ['haunting'], style: ['lyrical'], moods: ['dark'], demand: 3 } };
+  const b3 = DB.upsertBook({ goodreadsId: '13', title: 'Haunted Three', author: 'H', pages: 300, description: 'A house remembers.', reviews: [{ text: 'a', likes: 0 }] }); DB.setReviewDigest(b3, digest);
+  const b4 = DB.upsertBook({ goodreadsId: '14', title: 'Haunted Four', author: 'H', pages: 310, reviews: [{ text: 'a', likes: 0 }] }); DB.setReviewDigest(b4, digest);
+  const r3 = DB.addRecommendation({ sessionId: sid, bookId: b3, rank: 1, slot: 'stretch', fit: { kind: 'pick', headline: 'A slow burn', risk_for_you: 'The first 80 pages are quiet', why_now: 'because' } });
+  DB.updateSession(sid, { status: 'recommended', brief: { reader_now: 'Tired, wants company.' } });
+  // Plan: a pick carries the tool's named risk; a book with no pick does not; dropped rewords the questions.
+  const plan = debriefPlan({ bookId: b3, recId: r3, outcome: 'finished' });
+  assert.ok(plan.questions.some((q) => q.id === 'warning' && q.help.includes('first 80 pages')));
+  assert.equal(plan.rec.risk_for_you, 'The first 80 pages are quiet');
+  const plan4 = debriefPlan({ bookId: b4, outcome: 'dropped' });
+  assert.ok(!plan4.questions.some((q) => q.id === 'warning'));
+  assert.match(plan4.questions.find((q) => q.id === 'bothered').text, /stop/);
+  // The follow-up screen carries what the book was.
+  DB.db.prepare("UPDATE recommendations SET created_at = '2026-01-01T00:00:00.000Z' WHERE id = ?").run(r3);
+  const fu = DB.pendingFollowups().find((x) => x.id === r3);
+  assert.ok(fu && fu.description === 'A house remembers.' && fu.review_digest.one_line === 'z' && fu.fit.why_now === 'because');
+  // Save a debrief for the pick: outcome recorded, shelved, verdict on the shelf item, fact, history, context.
+  recordDebrief({ bookId: b3, recId: r3, outcome: 'finished', rating: 4, answers: { worked: ['atmosphere', 'voice'], bothered: ['slow_start'], fit_mood: 'exactly', warning: 'exactly', more_like: 'feeling' }, text: 'the house was the character' });
+  assert.equal(DB.db.prepare('SELECT feedback FROM recommendations WHERE id = ?').get(r3).feedback, 'finished');
+  assert.deepEqual(DB.shelvesForBook(b3).map((s) => s.name), ['Finished']);
+  const item = DB.shelfItemFor(b3, 'Finished');
+  assert.equal(item.my_rating, 4);
+  assert.ok(JSON.parse(item.my_verdict).worked.includes('The atmosphere'));
+  assert.ok(DB.getFacts({ kind: 'trait' }).some((f) => f.key === 'after_' + b3 && f.value.line.includes('bothered: Slow start')));
+  assert.ok(DB.listHistory().some((h) => h.book_id === b3 && h.my_rating === 4 && h.source === 'interview'));
+  // A debrief without a pick shelves the book directly and writes the dnf fact.
+  recordDebrief({ bookId: b4, outcome: 'dropped', page: 90, answers: { bothered: ['slow_start', 'characters'], fit_mood: 'wrong_book' }, text: 'nobody to care about' });
+  assert.deepEqual(DB.shelvesForBook(b4).map((s) => s.name), ['Did not finish']);
+  assert.ok(DB.getFacts({ kind: 'trait' }).some((f) => f.key === 'dnf_' + b4));
+  const ctx = fullContext(null);
+  assert.equal(ctx.after_reading.books.length, 2);
+  assert.match(ctx.after_reading.books[0], /Haunted Four.*dropped around page 90/);
+  const pat = debriefPatterns();
+  assert.equal(pat.n, 2);
+  assert.ok(pat.sentences.some((s) => /slow start \(2 of 2\)/.test(s)), pat.sentences.join(' | '));
+  const fp = fingerprint();
+  const haunting = fp.rows.find((r) => r.tag === 'haunting');
+  assert.ok(haunting && haunting.finished === 1 && haunting.dnf === 1);
+  // A second debrief of the same book wins over the first in the fingerprint's signal set.
+  recordDebrief({ bookId: b3, recId: r3, outcome: 'dropped', page: 20, answers: {}, text: 'changed my mind' });
+  assert.ok(DB.signalBooks().find((s) => s.book_id === b3).dnf);
+  // Past picks lists the session with its picks and the debrief flag.
+  const pastList = DB.listSessionsWithPicks();
+  const s = pastList.find((x) => x.id === sid);
+  assert.ok(s && s.reader_now === 'Tired, wants company.' && s.picks[0].debrief_id && s.picks[0].feedback === 'dropped');
+  assert.ok(DB.readingNow().every((x) => x.book_id !== b3));
+});
+
+test('abandoned sessions without answers are pruned; answered ones are kept', () => {
+  const empty = DB.createSession('quick');
+  const kept = DB.createSession('quick');
+  DB.addAnswer({ sessionId: kept, qId: 'mood_now', layer: 'checkin', question: 'How are you?', options: [], answer: 'flat' });
+  DB.db.prepare("UPDATE sessions SET started_at = '2026-01-01T00:00:00.000Z' WHERE id IN (?, ?)").run(empty, kept);
+  const fresh = DB.createSession('quick');
+  assert.ok(DB.pruneEmptySessions(10) >= 1);
+  assert.equal(DB.getSession(empty), null);
+  assert.ok(DB.getSession(kept) && DB.getSession(fresh), 'answered and just-created sessions survive');
+});
+
 test('export and import round-trip into an empty database', () => {
   const data = exportAll();
   assert.equal(data.format, 'book-finder-export');

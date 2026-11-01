@@ -98,7 +98,7 @@ export const BRIEF_SCHEMA = {
 export const BRIEF_SYSTEM = `You are a master readers' advisor (Saricks school) with a psychologist's ear. Turn an interview into a precise RECOMMENDATION BRIEF.
 ${APPEAL_VOCAB}
 ${RA_PRINCIPLES}
-Read the stable profile (including anchor answers: which appeal factor of each loved book did the work, and what killed the abandoned ones), the appeal fingerprint and the "say versus do" evidence (what the reader asked for in past moods versus what they actually finished; when they conflict, trust what they finished), the reading history, past recommendation feedback, and today's answers. If the context says gift=true, the brief is for the person described in the answers, not the profile owner: ignore the owner's profile entirely. If the need is comfort and loved books exist, list up to two of them as reread_candidates in anchors with the prefix "REREAD:". Resolve contradictions in favour of TODAY's state unless a trait is a dealbreaker. Translate everything into appeal terms. Be concrete and brave: a brief that could fit anyone is a failure. If the reader wrote free text, treat it as the most important signal. If they said "surprise me", widen novelty but keep the need. If the mood is low and the need is "sit with it", do not sneak in cheer. The "reader_now" paragraph should make the reader feel seen.`;
+Read the stable profile (including anchor answers: which appeal factor of each loved book did the work, and what killed the abandoned ones), the appeal fingerprint and the "say versus do" evidence (what the reader asked for in past moods versus what they actually finished; when they conflict, trust what they finished), the "after_reading" debriefs (what the reader said right after finishing or dropping recent books: what did the work, what bothered them, whether the pick did its job, whether the tool's warning was right; this is the freshest and most trustworthy evidence you have, so let a repeated complaint there become a soft_avoid and a repeated "what worked" become a decisive appeal factor, and never repeat a mistake the reader has already named), the reading history, past recommendation feedback, and today's answers. If the context says gift=true, the brief is for the person described in the answers, not the profile owner: ignore the owner's profile entirely. If the need is comfort and loved books exist, list up to two of them as reread_candidates in anchors with the prefix "REREAD:". Resolve contradictions in favour of TODAY's state unless a trait is a dealbreaker. Translate everything into appeal terms. Be concrete and brave: a brief that could fit anyone is a failure. If the reader wrote free text, treat it as the most important signal. If they said "surprise me", widen novelty but keep the need. If the mood is low and the need is "sit with it", do not sneak in cheer. The "reader_now" paragraph should make the reader feel seen.`;
 
 export const CANDIDATES_SCHEMA = {
   type: 'object',
@@ -214,7 +214,7 @@ Method:
 2. Score each on the brief's 2-3 decisive appeal factors, then the need, then constraints. Use the rating distribution as a prior with shrinkage: a 4.3 from 900 ratings is not better than a 4.0 from 90,000. Polarising books are fine if the reader's turn-offs are not what polarises them.
 3. Fill the slots with different kinds of books. Order by how likely the reader is to START and FINISH it this week, not by prestige.
 4. Write for the reader, second person, plain and specific. Mention actual review content. Never pad. Never promise a book is "perfect".
-5. In "what_readers_complain", if the complaint matches one of the reader's turn-offs, say so plainly.
+5. In "what_readers_complain", if the complaint matches one of the reader's turn-offs, or something the reader said bothered them in a recent debrief ("AFTER RECENT BOOKS"), say so plainly, and let it cost the candidate.
 6. If the reader will listen (formats include audio, or they read "mostly as audio"), treat narration as an appeal factor: use the digest's audiobook notes, prefer books that survive the ear (clear voices, few footnotes/maps/typographic tricks), and fill audio_note for every pick, saying "no narrator information in the reviews" when that is the case.
 Pick between 3 and 5. Fewer, better picks beat five with filler.`;
 
@@ -235,7 +235,7 @@ export const REFLECT_SCHEMA = {
   required: ['reader_dna', 'inferred_facts', 'questions_to_ask_next_time'], additionalProperties: false,
 };
 
-export const REFLECT_SYSTEM = `You maintain a long-term taste profile ("Reader DNA") for one reader. You get: onboarding answers, imported reading history with ratings and reviews, all shelf verdicts (finished with rating, did not finish with reason, not for me), and feedback on past recommendations. Infer stable patterns in appeal terms. Be careful: a single data point is a hint, not a fact; set confidence accordingly. Prefer patterns backed by both a like and a dislike. Flag anything the reader seems to say they like but never finishes.
+export const REFLECT_SYSTEM = `You maintain a long-term taste profile ("Reader DNA") for one reader. You get: onboarding answers, imported reading history with ratings and reviews, all shelf verdicts (finished with rating, did not finish with reason, not for me), feedback on past recommendations, and "after_reading" debriefs (what the reader said right after finishing or dropping a book: what did the work, what bothered them, whether it did the job they needed, whether the tool's warning was right, and their own words). Debriefs are the freshest and most reliable evidence; weigh them above self-described taste when they conflict, and say so in the Reader DNA. Infer stable patterns in appeal terms. Be careful: a single data point is a hint, not a fact; set confidence accordingly. Prefer patterns backed by both a like and a dislike. Flag anything the reader seems to say they like but never finishes.
 ${APPEAL_VOCAB}`;
 
 export const MATCH_SCHEMA = {
@@ -270,7 +270,7 @@ export const VERDICT_SCHEMA = {
   additionalProperties: false,
 };
 
-export const VERDICT_SYSTEM = `You are a readers' advisor asked one plain question by one reader whose taste you know well: "Should I read this book?" You get the reader's profile (Reader DNA, taste answers, history, shelves, past feedback, and their most recent mood check-in if there is one) and real data on the book (description, rating spread, a digest of real reviews, and the reviews themselves).
+export const VERDICT_SYSTEM = `You are a readers' advisor asked one plain question by one reader whose taste you know well: "Should I read this book?" You get the reader's profile (Reader DNA, taste answers, history, shelves, past feedback, after-reading debriefs of recent books, and their most recent mood check-in if there is one) and real data on the book (description, rating spread, a digest of real reviews, and the reviews themselves).
 ${APPEAL_VOCAB}
 ${RA_PRINCIPLES}
 Judge honestly. "No" and "probably not" are useful answers; so is "yes, but not this month". Dealbreakers are vetoes. Turn-offs are penalties weighed against the strength of the match on the reader's decisive appeal factors. If the reader's most recent check-in is from the last few days, say whether the book fits that mood as well as their general taste. Second person, specific, no flattery, no "perfect".`;
@@ -311,6 +311,22 @@ export const ANCHORS_SCHEMA = {
   required: ['questions'], additionalProperties: false,
 };
 export const ANCHORS_SYSTEM = `You are a readers' advisor doing what good librarians always do after a reader names a loved book: asking WHICH part of it did the work. You get the reader's own words about books they loved and books they abandoned. For each clearly identifiable book (up to 5 loved, up to 2 abandoned) write one closed question whose options are the specific appeal factors that book actually has (its pace, tone, prose, character, setting, structure, ending, ideas). The reader may pick more than one. Use what the reader already wrote: if they said why, make that option one of the choices and add the plausible alternatives. Skip books you cannot identify. Options under 12 words, concrete to the book, never generic ("the plot").
+${APPEAL_VOCAB}`;
+
+// ---------- After-reading debrief: one more question, written for this book ----------
+export const DEBRIEF_FOLLOWUP_SCHEMA = {
+  type: 'object',
+  properties: {
+    ask: { type: 'boolean', description: 'false when the closed answers already say everything worth knowing; then no question is shown.' },
+    text: { type: 'string', description: 'Under 22 words, specific to this book and to what the reader just said. Never generic.' },
+    help: { type: 'string', description: 'One short sentence on why you ask. May be empty.' },
+    type: { type: 'string', enum: ['single', 'multi'] },
+    options: { type: 'array', minItems: 3, maxItems: 5, items: OPTION, description: 'Concrete to THIS book (a character, a section, a device, a theme), each under 12 words; hint names the appeal term.' },
+    note_for_profile: { type: 'string', description: 'One sentence, third person, on what this debrief most likely means for future picks. Tentative.' },
+  },
+  required: ['ask', 'text', 'help', 'type', 'options', 'note_for_profile'], additionalProperties: false,
+};
+export const DEBRIEF_FOLLOWUP_SYSTEM = `You are a readers' advisor talking to a reader who has just finished or dropped a book. You get the book (description, a digest of real reviews), the reader's closed debrief answers (what worked, what bothered them, whether it did the job, whether the warning was right, what they want next) and their own words. Write ONE more closed question that resolves the most useful remaining ambiguity about THIS book for future recommendations: which of two plausible culprits killed it, which part of the appeal actually carried it, whether a complaint was about the book or about the moment. Use the book's real specifics (named characters, sections, devices, the ending) and what the reader already said; never ask what they already answered. If their answers are already unambiguous, set ask=false and still fill the other fields sensibly. Options under 12 words, concrete, never generic.
 ${APPEAL_VOCAB}`;
 
 // ---------- Reading path: brief and ranking ----------

@@ -9,7 +9,7 @@ import * as DB from './db.js';
 import { ONBOARDING, CHECKIN } from './questions.js';
 import { nextQuestion, recordAnswer, generateAdaptive, generateAnchors, onboardingDone, undoLastAnswer } from './pipeline/interview.js';
 import { runRecommendation, subscribe, progressOf, lookupBook, importGoodreadsBook, digestBook, lookupPolish } from './pipeline/recommend.js';
-import { followups, recordOutcome, sayVsDo, fingerprint, reportStats, writeReport, enrichHistory, historyJob, authorNext } from './pipeline/insights.js';
+import { followups, recordOutcome, sayVsDo, fingerprint, reportStats, writeReport, enrichHistory, historyJob, authorNext, debriefPlan, recordDebrief, debriefFollowup, debriefPatterns } from './pipeline/insights.js';
 import { backupDatabase, listBackups, checkHealth, health, exportAll, importAll, lanStatus, setLan, lanToken } from './ops.js';
 import { reflectProfile, importHistoryCsv } from './pipeline/reflect.js';
 import { MODELS, resolveModel } from './llm.js';
@@ -54,9 +54,10 @@ function privateHost(hostname) {
 }
 
 // ---------- state ----------
-route('GET', '/api/state', async () => ({
+route('GET', '/api/state', async () => (DB.pruneEmptySessions(10), {
   onboardingDone: onboardingDone(),
   readerDna: DB.getFacts({ kind: 'trait' }).find((f) => f.key === 'reader_dna')?.value || null,
+  tasteConfirmedAt: DB.getFacts({ kind: 'trait' }).filter((f) => f.source === 'answer' && !/_completed$/.test(f.key)).map((f) => f.observed_at).sort().pop() || null,
   shelves: DB.listShelves(),
   sessions: DB.listSessions(12),
   history: DB.historyStats(),
@@ -64,13 +65,14 @@ route('GET', '/api/state', async () => ({
   verdicts: DB.recentVerdicts(6),
   autoReflect: autoReflectStatus(),
   followups: followups().length,
+  reading: DB.readingNow(),
   health: { checkedAt: health.checkedAt, problems: health.problems },
   lan: lanStatus(),
 }));
 
 // ---------- interview ----------
 route('GET', '/api/questions', async () => ({ onboarding: ONBOARDING, checkin: CHECKIN }));
-route('POST', '/api/sessions', async (req) => { const b = await body(req); const id = DB.createSession(b.mode || 'full'); return { id, ...DB.getSession(id) }; });
+route('POST', '/api/sessions', async (req) => { const b = await body(req); DB.pruneEmptySessions(2); const id = DB.createSession(b.mode || 'full'); return { id, ...DB.getSession(id) }; });
 route('GET', '/api/sessions', async () => DB.listSessions(50));
 route('GET', '/api/sessions/:id', async (req, p) => {
   const s = DB.getSession(Number(p.id)); if (!s) throw httpError(404, 'no such session');
@@ -131,7 +133,21 @@ route('GET', '/api/moods', async () => DB.moodLog(60));
 // ---------- learning: loop closer, evidence, reports, history enrichment, author next, notes ----------
 route('GET', '/api/followups', async (req) => followups(Number(new URL(req.url, 'http://x').searchParams.get('exclude')) || null));
 route('POST', '/api/recommendations/:id/outcome', async (req, p) => { const b = await body(req); return recordOutcome(Number(p.id), b); });
-route('GET', '/api/insights', async () => ({ sayVsDo: sayVsDo(), fingerprint: fingerprint() }));
+route('GET', '/api/insights', async () => ({ sayVsDo: sayVsDo(), fingerprint: fingerprint(), afterReading: debriefPatterns() }));
+// Past picks: every slate with what became of each book.
+route('GET', '/api/past', async () => DB.listSessionsWithPicks(100));
+// After-reading debrief: the plan (questions for this book), the save, and the one LLM-written follow-up question.
+route('GET', '/api/debrief/plan', async (req) => {
+  const u = new URL(req.url, 'http://x');
+  return debriefPlan({ bookId: Number(u.searchParams.get('bookId')), recId: Number(u.searchParams.get('rec')) || null, outcome: u.searchParams.get('outcome') || 'finished' });
+});
+route('POST', '/api/debrief/followup', async (req) => { const b = await body(req); return await debriefFollowup({ bookId: Number(b.bookId), recId: Number(b.recId) || null, outcome: b.outcome, answers: b.answers || {}, text: b.text || null, rating: Number(b.rating) || null, page: Number(b.page) || null }); });
+route('POST', '/api/debriefs', async (req) => {
+  const b = await body(req);
+  return recordDebrief({ bookId: Number(b.bookId), recId: Number(b.recId) || null, outcome: b.outcome, rating: Number(b.rating) || null, page: Number(b.page) || null, reason: b.reason || null, answers: b.answers || {}, text: b.text || null });
+});
+route('GET', '/api/debriefs', async (req) => DB.listDebriefs({ bookId: Number(new URL(req.url, 'http://x').searchParams.get('bookId')) || null, limit: 100 }));
+route('DELETE', '/api/debriefs/:id', async (req, p) => { DB.db.prepare('DELETE FROM debriefs WHERE id = ?').run(Number(p.id)); return { ok: true }; });
 route('GET', '/api/report', async (req) => reportStats(new URL(req.url, 'http://x').searchParams.get('period') || 'quarter'));
 route('POST', '/api/report', async (req) => { const b = await body(req); return await writeReport(b.period || 'quarter'); });
 route('GET', '/api/history/enrich', async () => historyJob);
@@ -217,7 +233,11 @@ route('GET', '/api/cover', async (req, p, res) => {
 // ---------- books ----------
 route('GET', '/api/books/search', async (req) => lookupBook(new URL(req.url, 'http://x').searchParams.get('q') || ''));
 route('POST', '/api/books/import', async (req) => { const b = await body(req); const book = await importGoodreadsBook(String(b.goodreadsId)); return withShelves(book); });
-route('GET', '/api/books/:id', async (req, p) => { const b = DB.getBook(Number(p.id)); if (!b) throw httpError(404, 'no such book'); return { ...withShelves(b), progress: DB.shelfItemFor(b.id, 'Reading now')?.page || null, notes: DB.listNotes({ bookId: b.id }) }; });
+route('GET', '/api/books/:id', async (req, p) => {
+  const b = DB.getBook(Number(p.id)); if (!b) throw httpError(404, 'no such book');
+  const rec = DB.db.prepare("SELECT id, session_id, feedback FROM recommendations r WHERE book_id = ? AND slot != 'runner_up' ORDER BY id DESC LIMIT 1").get(b.id) || null;
+  return { ...withShelves(b), progress: DB.shelfItemFor(b.id, 'Reading now')?.page || null, notes: DB.listNotes({ bookId: b.id }), debrief: DB.latestDebrief(b.id), rec };
+});
 route('POST', '/api/books/:id/digest', async (req, p) => { const b = DB.getBook(Number(p.id)); if (!b) throw httpError(404); return await digestBook(b); });
 
 // ---------- history ----------

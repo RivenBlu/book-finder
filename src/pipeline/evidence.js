@@ -62,6 +62,34 @@ export function fingerprint() {
   const dropped = rows.filter((r) => r.dnf >= 2).sort((a, b) => b.dnf / b.n - a.dnf / a.n).slice(0, 8);
   return { books: books.length, rows: rows.slice(0, 40), loved, dropped };
 }
+// ---------- after-reading patterns: what did the work and what bothered, counted across debriefs ----------
+const DEBRIEF_LABELS = {
+  worked: { characters: 'the people', voice: 'the voice and sentences', pull: 'the pull', atmosphere: 'the atmosphere', ideas: 'the ideas', feeling: 'the feeling', structure: 'the shape', nothing: 'nothing much' },
+  bothered: { slow_start: 'a slow start', too_long: 'dragging or length', prose: 'the prose', characters: 'the people', too_dark: 'too dark or heavy', too_light: 'too light or silly', predictable: 'predictability', confusing: 'confusion', ending: 'the ending', content: 'unwanted content', wrong_moment: 'the wrong moment', nothing: 'nothing really' },
+};
+export function debriefPatterns() {
+  const rows = DB.listDebriefs({ limit: 500 });
+  const finished = rows.filter((r) => r.outcome === 'finished'), dropped = rows.filter((r) => r.outcome === 'dropped');
+  const lab = (k, id) => DEBRIEF_LABELS[k][id] || String(id).replace(/_/g, ' ');
+  const worked = counter(finished.flatMap((r) => (r.answers.worked || []).filter((x) => x !== 'nothing')));
+  const botheredAll = counter(rows.flatMap((r) => (r.answers.bothered || []).filter((x) => x !== 'nothing')));
+  const killers = counter(dropped.flatMap((r) => (r.answers.bothered || []).filter((x) => x !== 'nothing')));
+  const fit = counter(rows.map((r) => r.answers.fit_mood));
+  const warning = counter(rows.map((r) => r.answers.warning));
+  const next = counter(rows.map((r) => r.answers.more_like));
+  const loved = finished.filter((r) => r.rating >= 4), meh = finished.filter((r) => r.rating && r.rating <= 2);
+  const sentences = [];
+  if (rows.length >= 2 && worked.length) sentences.push(`Across ${finished.length} debriefed ${finished.length === 1 ? 'book' : 'books'} you finished, what did the work most often: ${worked.slice(0, 3).map(([k, n]) => `${lab('worked', k)} (${n})`).join(', ')}.`);
+  if (rows.length >= 2 && botheredAll.length) sentences.push(`What bothered you most often: ${botheredAll.slice(0, 3).map(([k, n]) => `${lab('bothered', k)} (${n} of ${rows.length})`).join(', ')}.`);
+  if (dropped.length >= 2 && killers.length) sentences.push(`What made you stop (${dropped.length} dropped): ${killers.slice(0, 3).map(([k, n]) => `${lab('bothered', k)} ×${n}`).join(', ')}.`);
+  const told = rows.filter((r) => r.answers.warning).length;
+  if (told >= 2) { const right = rows.filter((r) => ['exactly', 'partly'].includes(r.answers.warning)).length; sentences.push(`The tool's named risk was right or half right ${right} of ${told} times${rows.filter((r) => r.answers.warning === 'elsewhere').length ? `; ${rows.filter((r) => r.answers.warning === 'elsewhere').length} ${rows.filter((r) => r.answers.warning === 'elsewhere').length === 1 ? 'time' : 'times'} the real problem was elsewhere` : ''}.`); }
+  const wrongMoment = rows.filter((r) => r.answers.fit_mood === 'wrong_moment' || (r.answers.bothered || []).includes('wrong_moment')).length;
+  if (wrongMoment >= 2) sentences.push(`${wrongMoment} books were the right book at the wrong moment: timing, not taste.`);
+  if (loved.length >= 2) { const lw = counter(loved.flatMap((r) => (r.answers.worked || []).filter((x) => x !== 'nothing'))); if (lw.length) sentences.push(`In the books you rated 4 or 5, it was ${lw.slice(0, 2).map(([k]) => lab('worked', k)).join(' and ')} that carried them.`); }
+  return { n: rows.length, finished: finished.length, dropped: dropped.length, loved: loved.length, meh: meh.length, worked, bothered: botheredAll, killers, fit, warning, next, sentences };
+}
+
 export function fingerprintCompact() {
   const f = fingerprint();
   if (f.books < 3) return null;

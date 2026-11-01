@@ -45,7 +45,7 @@ export async function checkHealth() {
 }
 
 // ---------- profile export / import ----------
-const TABLES = ['settings', 'profile_facts', 'sessions', 'answers', 'books', 'recommendations', 'shelves', 'shelf_items', 'reading_history', 'chats', 'verdicts', 'notes'];
+const TABLES = ['settings', 'profile_facts', 'sessions', 'answers', 'books', 'recommendations', 'shelves', 'shelf_items', 'reading_history', 'chats', 'verdicts', 'notes', 'debriefs'];
 export function exportAll() {
   const out = { format: 'book-finder-export', version: 2, exported_at: DB.now(), tables: {} };
   for (const t of TABLES) {

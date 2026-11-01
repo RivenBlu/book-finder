@@ -380,6 +380,59 @@ export const GIFT = [
   },
 ];
 
+// After-reading debrief: the mini interview right after finishing or dropping a book. Closed questions in appeal
+// terms, asked while the experience is fresh; the answers outrank anything the reader said before reading.
+const WORKED = [
+  S('characters', 'The people', 'Characters I cared about or could not look away from'),
+  S('voice', 'The voice and the sentences', 'Prose, narration, humour in the telling'),
+  S('pull', 'The pull', 'Pace, plot, needing to know what happens'),
+  S('atmosphere', 'The atmosphere', 'Setting, world, mood I could live inside'),
+  S('ideas', 'The ideas', 'It made me think; it rearranged something'),
+  S('feeling', 'The feeling', 'It moved me, or held me, or made me laugh out loud'),
+  S('structure', 'The shape', 'Structure, the twist, the ending'),
+  S('nothing', 'Nothing much', 'It never really landed'),
+];
+const BOTHERED = [
+  S('slow_start', 'Slow start', 'Took too long to begin'),
+  S('too_long', 'Dragged or too long', 'Sagged in the middle; I skimmed'),
+  S('prose', 'The prose', 'Style got in the way: overwritten, flat, or trying too hard'),
+  S('characters', 'The people', 'Flat, annoying, or I did not care'),
+  S('too_dark', 'Too dark or heavy', 'More than I wanted to carry'),
+  S('too_light', 'Too light or silly', 'Thinner than I needed'),
+  S('predictable', 'Predictable', 'I saw everything coming'),
+  S('confusing', 'Confusing', 'Lost the thread, too many names, unclear'),
+  S('ending', 'The ending', 'Rushed, unearned, or a let-down'),
+  S('content', 'Content I did not want', 'A theme or scene I would rather have skipped'),
+  S('wrong_moment', 'Wrong moment', 'Fine book, wrong week for it'),
+  S('nothing', 'Nothing really', 'No real complaint'),
+];
+export const DEBRIEF = [
+  { id: 'worked', layer: 'debrief', type: 'multi', text: 'What did the work?', help: 'Pick anything that is true. The order does not matter.', options: WORKED },
+  { id: 'bothered', layer: 'debrief', type: 'multi', text: 'What bothered you?', help: 'Honest and petty is fine. This is the most useful answer in the app.', options: BOTHERED },
+  {
+    id: 'fit_mood', layer: 'debrief', type: 'single', text: 'Did it do what you needed at the time?',
+    options: [S('exactly', 'Exactly', 'The right book for that moment'), S('partly', 'Partly', 'Close, but not quite the job I wanted done'), S('other_job', 'It did something else', 'Good, but not what I asked for'), S('wrong_moment', 'Wrong moment', 'Right book, wrong week; I would try it again')],
+  },
+  {
+    id: 'warning', layer: 'debrief', type: 'single', text: 'Was the risk I named the actual problem?', help: '', needsRisk: true,
+    options: [S('exactly', 'Yes, exactly that', 'The warning was right'), S('partly', 'Partly', 'That, and something else'), S('elsewhere', 'No, the problem was elsewhere', 'The warning missed what mattered'), S('no_problem', 'No problem at all', 'The warning was needless')],
+  },
+  {
+    id: 'more_like', layer: 'debrief', type: 'single', text: 'What next, after this one?',
+    options: [S('author', 'More by this author', 'Same hands'), S('feeling', 'More of this feeling', 'Same job, different book'), S('different', 'Something different now', 'Enough of this for a while'), S('never', 'Never again', 'Not this kind of book')],
+  },
+  { id: 'words', layer: 'debrief', type: 'text', text: 'Anything else, in your own words?', help: 'What you would tell a friend. What was bothering you. Half a sentence is enough.', placeholder: 'e.g. loved the sister, hated the romance; the last 50 pages saved it; too many dream sequences' },
+];
+export function debriefQuestions({ outcome = 'finished', risk = null } = {}) {
+  return DEBRIEF.filter((q) => !q.needsRisk || risk).map((q) => {
+    if (q.id === 'warning') return { ...q, help: `I wrote: “${String(risk).slice(0, 220)}”` };
+    if (q.id === 'worked' && outcome === 'dropped') return { ...q, text: 'Did anything work before you stopped?', help: 'Pick anything that is true, or "nothing much".' };
+    if (q.id === 'bothered' && outcome === 'dropped') return { ...q, text: 'What made you stop?', help: 'More than one is fine. This is the most useful answer in the app.' };
+    if (q.id === 'fit_mood' && outcome === 'dropped') return { ...q, text: 'Was it the wrong book, or the wrong moment?', options: [S('wrong_book', 'Wrong book', 'I would not pick it up again'), S('wrong_moment', 'Wrong moment', 'Right book, wrong week; keep it around'), S('other_job', 'It did something else', 'Not the job I needed done'), S('partly', 'Hard to say', 'A bit of both')] };
+    return q;
+  });
+}
+
 export function questionById(id) {
-  return [...ONBOARDING, ...CHECKIN, ...PATH, ...GIFT].find((q) => q.id === id) || null;
+  return [...ONBOARDING, ...CHECKIN, ...PATH, ...GIFT, ...DEBRIEF].find((q) => q.id === id) || null;
 }

@@ -56,12 +56,12 @@ themeBtn.onclick = () => {
 };
 
 // ---------- router ----------
-const routes = { home, interview, results, shelves, profile, history, settings, book, session: results, check, followups: followupsPage, report };
+const routes = { home, interview, results, shelves, profile, history, settings, book, session: results, check, followups: followupsPage, report, past, debrief: debriefPage };
 async function router() {
   const [name, ...args] = (location.hash.slice(1) || 'home').split('/');
-  document.querySelectorAll('nav a').forEach((a) => a.classList.toggle('active', a.dataset.nav === name || (['interview', 'results', 'book', 'session'].includes(name) && a.dataset.nav === 'home')));
+  document.querySelectorAll('nav a').forEach((a) => a.classList.toggle('active', a.dataset.nav === name || (['interview', 'book', 'session', 'debrief', 'followups'].includes(name) && a.dataset.nav === 'home') || (name === 'results' && a.dataset.nav === 'past')));
   window.onkeydown = null; setBar(null);
-  app.className = ['interview', 'settings', 'check', 'followups', 'report'].includes(name) ? 'narrow' : '';
+  app.className = ['interview', 'settings', 'check', 'followups', 'report', 'debrief'].includes(name) ? 'narrow' : '';
   app.innerHTML = '<p class="sec ui" style="padding:40px 0">Loading…</p>';
   try { await (routes[name] || home)(...args); } catch (e) { app.innerHTML = h`<div class="section"><h2>Something broke</h2><p class="sec" style="margin-top:8px">${e.message}</p><p style="margin-top:16px"><a class="btn" href="#home">Home</a></p></div>`; }
 }
@@ -83,15 +83,19 @@ async function home() {
       <p class="lede-small">Mood, not genre. Reviews, not ratings. Honest about the risk.</p>
     </div>
     <div class="hero-pic">${raw(HERO)}</div>
-    <div class="modes">
-      <button class="mode primary" data-mode="full"><span class="t">${first ? 'Start the interview' : 'Full interview'}</span><span class="d">${first ? 'About 17 questions about your taste, asked once, then 12 about right now. Eight minutes.' : 'Twelve questions about right now, plus two or three sharp follow-ups. Best results.'}</span><span class="k">Press 1 → 9 to answer</span></button>
-      <button class="mode" data-mode="quick"><span class="t">Quick check-in</span><span class="d">Six questions. Uses your saved Reader DNA. For when you already know the mood.</span><span class="k">${first ? 'Available after the first interview' : 'About two minutes'}</span></button>
-      <button class="mode" data-mode="onboarding"><span class="t">${first ? 'Taste profile only' : 'Revisit my taste'}</span><span class="d">Loved and abandoned books, dealbreakers, films and music as proxies. No recommendation at the end.</span><span class="k">Previous answers shown for confirming</span></button>
-      <button class="mode path" data-mode="path"><span class="t">A reading path</span><span class="d">Two to four books in order over a few weeks, from where you are to where you want to be. Each one moves you a step.</span><span class="k">${first ? 'After the first interview' : 'About ten questions'}</span></button>
-      <button class="mode" data-mode="gift"><span class="t">For someone else</span><span class="d">Eight questions about them. Your own taste stays out of it. The picks land on your Gifts shelf.</span><span class="k">Birthday, hard time, just because</span></button>
+    <div class="modes-wrap">
+      <div class="modes-head"><span class="eyebrow">${first ? 'Start here' : 'A new report'}</span><span class="cap sec">${first ? 'The first interview also builds your taste profile. After that, every option below ends in a page of books with real reviews.' : 'Each one ends in a page of books, with real reviews and honest reasons.'}</span></div>
+      <div class="modes">
+        <button class="mode primary" data-mode="full"><span class="t">${first ? 'Start the interview' : 'Find my next book'}</span><span class="d">${first ? 'About 17 questions about your taste, asked once, then 12 about right now. Then three to five books with real reviews.' : 'The full interview: twelve questions about right now and two or three follow-ups, then three to five books chosen for today.'}</span><span class="k">${first ? 'About twelve minutes · press 1 to 9 to answer' : 'About eight minutes · press 1 to 9 to answer'}</span></button>
+        <button class="mode" data-mode="quick" ${first ? 'disabled' : ''}><span class="t">Quick picks</span><span class="d">Six questions, the same report. For when you already know the mood and want the books.</span><span class="k">${first ? 'After the first interview' : 'About two minutes'}</span></button>
+        <button class="mode" data-mode="path" ${first ? 'disabled' : ''}><span class="t">A reading path</span><span class="d">Two to four books in order over a few weeks, from where you are to where you want to be. Each one moves you a step.</span><span class="k">${first ? 'After the first interview' : 'About ten questions, then the plan'}</span></button>
+        <button class="mode" data-mode="gift"><span class="t">A gift for someone else</span><span class="d">Eight questions about them. Your own taste stays out of it. The picks land on your Gifts shelf.</span><span class="k">Birthday, hard time, just because</span></button>
+      </div>
+      ${first ? '' : raw(h`<p class="cap sec modes-foot">Your taste profile is what every report starts from${st.tasteConfirmedAt ? `; you last confirmed it ${when(st.tasteConfirmedAt)}` : ''}. <a href="#" id="redoTaste">Revisit the taste questions</a> when it has drifted, or <a href="#profile">read your Reader DNA</a>.</p>`)}
     </div>
   </section>
-  ${recent.length ? raw(h`<section class="section"><div class="eyebrow">Recent</div><div class="recent">${recent.map((s) => raw(h`<div class="r"><div><div class="t">${when(s.started_at)} · ${({ quick: 'quick check-in', onboarding: 'taste profile', path: 'reading path', gift: 'gift for someone else' })[s.mode] || 'full interview'} · ${s.status === 'recommended' ? 'done' : s.status === 'researching' ? 'researching' : 'unfinished'}</div>${s.summary ? raw(h`<div class="s">${s.summary.slice(0, 160)}…</div>`) : ''}</div><div class="row"><a class="btn sm" href="#${s.status === 'recommended' ? 'results' : 'interview'}/${s.id}">${s.status === 'recommended' ? 'Open' : 'Continue'}</a><button class="btn sm ghost" data-del="${s.id}" title="Delete">✕</button></div></div>`))}</div></section>`) : ''}
+  ${recent.length ? raw(h`<section class="section"><div class="eyebrow">Recent</div><div class="recent">${recent.map((s) => raw(h`<div class="r"><div><div class="t">${when(s.started_at)} · ${({ quick: 'quick check-in', onboarding: 'taste profile', path: 'reading path', gift: 'gift for someone else' })[s.mode] || 'full interview'} · ${s.status === 'recommended' ? 'done' : s.status === 'researching' ? 'researching' : 'unfinished'}</div>${s.summary ? raw(h`<div class="s">${s.summary.slice(0, 160)}…</div>`) : ''}</div><div class="row"><a class="btn sm" href="#${s.status === 'recommended' ? 'results' : 'interview'}/${s.id}">${s.status === 'recommended' ? 'Open the report' : 'Continue'}</a><button class="btn sm ghost" data-del="${s.id}" title="Delete">✕</button></div></div>`))}</div><p class="cap" style="margin-top:14px"><a href="#past">All past picks, and what became of each book →</a></p></section>`) : ''}
+  ${st.reading?.length ? raw(h`<section class="section"><div class="eyebrow">Reading now</div><div class="recent">${st.reading.map((b) => raw(h`<div class="r"><div class="fuhead small"><a href="#book/${b.book_id}">${coverImg(b.cover, b.title, 'cover small')}</a><div><div class="t" style="font-family:var(--reading);font-size:18px;color:var(--ink)">${b.title}</div><div class="cap sec">${b.author || ''}${b.page ? ` · on page ${b.page}${b.pages ? ' of ' + b.pages : ''}` : ''}</div></div></div><div class="row"><a class="btn sm" href="#debrief/${b.book_id}/${b.rec_id || 0}/finished">Finished it</a><a class="btn sm ghost" href="#debrief/${b.book_id}/${b.rec_id || 0}/dropped">Dropped it</a></div></div>`))}</div><p class="cap sec" style="margin-top:14px">Finished one, or gave up? Two minutes while it is fresh teaches the tool more than anything else.</p></section>`) : ''}
   <section class="section">
     <div class="eyebrow">Thinking about a specific book?</div>
     <form class="row" id="checkForm" style="margin-top:12px"><input type="text" id="checkQ" placeholder="Title and author" style="flex:1;min-width:220px" autocomplete="off"><button class="btn primary">Should I read it?</button></form>
@@ -102,7 +106,8 @@ async function home() {
     <div><div class="eyebrow">Shelves</div><div class="row" style="margin-top:12px">${st.shelves.filter((s) => s.count || s.kind === 'system').slice(0, 7).map((s) => raw(h`<a href="#shelves/${s.id}" class="chip ${s.count ? 'lamp' : ''}">${s.name} <span class="tabular">${s.count}</span></a>`))}</div></div>
     <div><div class="eyebrow">Reader DNA</div><p class="sec" style="margin-top:12px;font-size:17px">${st.readerDna ? st.readerDna.slice(0, 200) + '…' : 'Not built yet. After the taste questions, import your Goodreads or StoryGraph history and rebuild it on the Reader DNA page.'}</p><p style="margin-top:12px"><a href="#profile" class="btn sm">Open</a></p></div>
   </section>`;
-  app.querySelectorAll('.mode').forEach((m) => m.onclick = async () => { const s = await post('/api/sessions', { mode: m.dataset.mode }); location.hash = `interview/${s.id}`; });
+  app.querySelectorAll('.mode').forEach((m) => m.onclick = async () => { if (m.disabled) return; const s = await post('/api/sessions', { mode: m.dataset.mode }); location.hash = `interview/${s.id}`; });
+  const redo = document.getElementById('redoTaste'); if (redo) redo.onclick = async (e) => { e.preventDefault(); const s = await post('/api/sessions', { mode: 'onboarding' }); location.hash = `interview/${s.id}`; };
   document.getElementById('checkForm').onsubmit = (e) => { e.preventDefault(); const q = document.getElementById('checkQ').value.trim(); if (q) location.hash = `check/${encodeURIComponent(q)}`; };
   app.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => { await del(`/api/sessions/${b.dataset.del}`); router(); });
 }
@@ -135,51 +140,226 @@ async function interview(id) {
 
 // ---------- loop closer ----------
 const OUTCOMES = [['finished', 'Finished it', 'Rate it and say a word'], ['dropped', 'Dropped it', 'Where, and why'], ['later', 'Have not started, keep it', 'Stays on Up next'], ['not_interested', 'Not interested after all', 'One line teaches the tool']];
+// The book header on every "what happened" and debrief screen: cover, title, a "remind me" panel with what the
+// book was and why it was suggested, and a link to the full book page (opens in a new tab so the flow is not lost).
+function bookHead(r, { eyebrow = null } = {}) {
+  const d = r.review_digest; const f = r.fit || {};
+  const hasRemind = !!(r.description || d?.one_line || f.why_now || f.headline);
+  return raw(h`<div class="fuhead"><a href="#book/${r.book_id || r.id}" target="_blank" rel="noopener" title="Open the book page in a new tab">${coverImg(r.cover, r.title, 'cover small')}</a>
+      <div><div class="text" style="margin-bottom:4px">${r.title}</div><div class="help" style="margin-bottom:0">${r.author || ''}${r.year ? ` · ${r.year}` : ''}${r.pages ? ` · ${r.pages} pages` : ''}${r.created_at ? ` · suggested ${when(r.created_at)}` : ''}${f.headline ? raw(h` · <i>${f.headline}</i>`) : ''}</div>
+        <div class="row" style="gap:8px;margin-top:8px">${hasRemind ? raw(h`<button class="btn sm" id="remindBtn">Remind me what it was</button>`) : ''}<a class="btn sm ghost" href="#book/${r.book_id || r.id}" target="_blank" rel="noopener">Open the book page ↗</a></div></div></div>
+    ${hasRemind ? raw(h`<div class="remind" id="remind" hidden>
+      ${d?.one_line ? raw(h`<p class="hl" style="margin-top:0">${d.one_line}</p>`) : ''}
+      ${r.description ? raw(h`<p class="prose" style="font-size:17px;margin-top:8px">${r.description.slice(0, 600)}${r.description.length >= 600 ? '…' : ''}</p>`) : ''}
+      <dl class="facts" style="margin-top:12px">
+        ${f.why_now ? raw(h`<dt>Why I suggested it</dt><dd>${f.why_now}</dd>`) : ''}
+        ${f.what_readers_love ? raw(h`<dt>Readers love</dt><dd>${f.what_readers_love}</dd>`) : ''}
+        ${f.risk_for_you ? raw(h`<dt>Risk I named</dt><dd>${f.risk_for_you}</dd>`) : ''}
+        ${d?.first_100_pages ? raw(h`<dt>First 100 pages</dt><dd>${d.first_100_pages}</dd>`) : ''}
+      </dl></div>`) : ''}`);
+}
+function wireRemind() {
+  const b = document.getElementById('remindBtn'); const p = document.getElementById('remind');
+  if (b && p) b.onclick = () => { p.hidden = !p.hidden; b.textContent = p.hidden ? 'Remind me what it was' : 'Hide the reminder'; };
+}
+
+// One "what happened" screen for one pick. Calls done({outcome, rating, page, reason}) once saved, or skip().
+function askOutcome(r, { index = 0, total = 1, eyebrow = 'What happened', previous = null } = {}, done, skip) {
+  setBar(Math.round((index / total) * 100));
+  app.innerHTML = h`<div class="interview"><div class="q">
+    <div class="meta"><span class="eyebrow">${eyebrow}${total > 1 ? raw(h` · <span class="tabular">${index + 1} of ${total}</span>`) : ''}</span></div>
+    ${bookHead(r)}
+    ${previous ? raw(h`<div class="prev">Last time you said: <b>${labelFeedback(previous.feedback)}${previous.outcome?.rating ? `, ${previous.outcome.rating}/5` : ''}${previous.feedback_note ? ` · ${previous.feedback_note}` : ''}</b>. Change it below, or go back.</div>`) : ''}
+    <div class="opts" style="margin-top:20px">${OUTCOMES.map(([id, label, hint], k) => raw(h`<button class="opt" data-id="${id}"><span class="kbd">${k + 1}</span><span><span class="l">${label}</span><span class="h">${hint}</span></span><span class="ck">✓</span></button>`))}</div>
+    <div id="detail" hidden style="margin-top:16px"></div>
+    <div class="qactions"><button class="btn primary" id="next" hidden>Save and continue <span class="kbd" style="background:transparent;color:inherit;border-color:currentColor;opacity:.7">↵</span></button><button class="btn ghost" id="skipAll">${total > 1 ? 'Skip for now' : 'Cancel'}</button><span class="hint">Press a number.</span></div>
+  </div></div>`;
+  wireRemind();
+  let outcome = null;
+  const detail = document.getElementById('detail'); const next = document.getElementById('next');
+  const pick = (id) => {
+    outcome = id; app.querySelectorAll('.opt').forEach((x) => x.classList.toggle('on', x.dataset.id === id));
+    detail.hidden = false; next.hidden = false;
+    if (id === 'finished') detail.innerHTML = h`<label class="lbl">Your rating</label><div class="rating-input" data-r="0">${[1, 2, 3, 4, 5].map((n) => raw(h`<span data-n="${n}">★</span>`))}</div><p class="cap sec" style="margin-top:10px">Next: five quick questions on what worked and what did not, while it is fresh.</p>`;
+    else if (id === 'dropped') detail.innerHTML = h`<label class="lbl">Around which page?</label><input type="number" id="page" min="1" style="width:120px" placeholder="${r.pages ? 'of ' + r.pages : ''}"><p class="cap sec" style="margin-top:10px">Next: four quick questions on what made you stop. The most useful answers in the app.</p>`;
+    else if (id === 'not_interested') detail.innerHTML = h`<label class="lbl">Why not? One line.</label><textarea id="reason" rows="2"></textarea>`;
+    else detail.innerHTML = h`<p class="cap sec">Kept on Up next. It will not be suggested again, and I will ask again later.</p>`;
+    const ri = detail.querySelector('.rating-input'); if (ri) ri.querySelectorAll('span').forEach((sp) => sp.onclick = () => { ri.dataset.r = sp.dataset.n; ri.querySelectorAll('span').forEach((x) => x.classList.toggle('on', Number(x.dataset.n) <= Number(sp.dataset.n))); });
+    const ta = detail.querySelector('textarea'); if (ta) ta.focus(); const inp = detail.querySelector('input'); if (inp) inp.focus();
+  };
+  app.querySelectorAll('.opt').forEach((b) => b.onclick = () => pick(b.dataset.id));
+  next.onclick = async () => {
+    if (!outcome) return;
+    const body = { outcome, reason: detail.querySelector('#reason')?.value.trim() || null, page: Number(detail.querySelector('#page')?.value) || null, rating: Number(detail.querySelector('.rating-input')?.dataset.r) || null };
+    if (r.id && r.book_id) await post(`/api/recommendations/${r.id}/outcome`, body);
+    done(body);
+  };
+  document.getElementById('skipAll').onclick = () => skip();
+  window.onkeydown = (e) => {
+    if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); next.click(); } return; }
+    if (/^[1-4]$/.test(e.key)) { e.preventDefault(); pick(OUTCOMES[Number(e.key) - 1][0]); }
+    else if (e.key === 'Enter') { e.preventDefault(); next.click(); }
+  };
+}
+
+// One closed (or free-text) question, same look as the interview, answered through a callback.
+function askClosed(q, { index = 0, total = 1, eyebrow = 'After reading', head = null, reaction = '' } = {}, cb) {
+  setBar(Math.round(Math.min(96, ((index + 1) / Math.max(total + 1, 1)) * 100)));
+  const isMulti = q.type === 'multi', isText = q.type === 'text';
+  let sel = [];
+  app.innerHTML = h`<div class="interview"><div class="q">
+    <div class="meta"><span class="eyebrow">${eyebrow} · <span class="tabular">${index + 1} of ${total}</span></span><span class="react">${reaction}</span></div>
+    ${head ? raw(h`<div class="fuhead small" style="margin-bottom:16px">${coverImg(head.cover, head.title, 'cover small')}<div class="cap sec" style="font-size:15px"><b style="color:var(--ink)">${head.title}</b><br>${head.author || ''}</div></div>`) : ''}
+    <div class="text">${q.text}</div>
+    ${q.help ? raw(h`<p class="help">${q.help}</p>`) : ''}
+    ${isText ? raw(h`<textarea id="free" placeholder="${q.placeholder || ''}"></textarea>`) : raw(h`
+      <div class="opts">${q.options.map((o, i) => raw(h`<button class="opt" data-id="${o.id}"><span class="kbd">${i + 1}</span><span><span class="l">${o.label}</span>${o.hint ? raw(h`<span class="h">${o.hint}</span>`) : ''}</span><span class="ck">✓</span></button>`))}</div>
+      <div class="other"><button class="btn sm ghost" id="otherBtn">✎ Other / my own words</button><textarea id="free" hidden placeholder="Say it your way. Free text is read as the strongest signal."></textarea></div>`)}
+    <div class="qactions"><button class="btn primary" id="next">Continue <span class="kbd" style="background:transparent;color:inherit;border-color:currentColor;opacity:.7">↵</span></button><button class="btn ghost" id="skip">Skip</button><span class="hint">${isMulti ? 'Pick any that apply, then Continue.' : isText ? 'Ctrl+Enter to continue.' : 'Press a number, or click.'}</span></div>
+  </div></div>`;
+  const free = document.getElementById('free'); const otherBtn = document.getElementById('otherBtn');
+  if (otherBtn) otherBtn.onclick = () => { free.hidden = !free.hidden; if (!free.hidden) free.focus(); };
+  let leaving = false;
+  const finish = async (skipped) => {
+    if (leaving) return; leaving = true;
+    const qEl = app.querySelector('.q'); if (qEl) { qEl.classList.add('out'); await new Promise((r) => setTimeout(r, 170)); }
+    cb({ answer: skipped ? null : isText ? null : isMulti ? sel : sel[0] ?? null, text: skipped ? null : free?.value.trim() || null, skipped });
+  };
+  app.querySelectorAll('.opt').forEach((b) => b.onclick = () => {
+    if (leaving) return; // a click during the leave animation must not change the answer already being saved
+    const v = b.dataset.id;
+    if (isMulti) { sel = sel.includes(v) ? sel.filter((x) => x !== v) : [...sel, v]; b.classList.toggle('on'); }
+    else { sel = [v]; app.querySelectorAll('.opt').forEach((x) => x.classList.toggle('on', x.dataset.id === v)); if (free.hidden) setTimeout(() => finish(false), 400); }
+  });
+  document.getElementById('next').onclick = () => { if (!isText && !sel.length && !free.value.trim()) return toast('Pick an option, write your own, or skip.'); finish(false); };
+  document.getElementById('skip').onclick = () => finish(true);
+  window.onkeydown = (e) => {
+    if (e.target.tagName === 'TEXTAREA') { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); document.getElementById('next').click(); } return; }
+    if (e.target.tagName === 'INPUT') return;
+    if (/^[1-9]$/.test(e.key) && !isText) { const b = app.querySelectorAll('.opt')[Number(e.key) - 1]; if (b) { e.preventDefault(); b.click(); } }
+    else if (e.key === 'Enter') { e.preventDefault(); document.getElementById('next').click(); }
+  };
+  if (isText) free.focus();
+}
+
+// The after-reading debrief: closed questions for this book, one LLM-written follow-up, then saved as evidence.
+// base: {bookId, recId, outcome, rating, page, reason}. done(saved) when finished; skip() when abandoned (the outcome itself is already saved).
+async function runDebrief(base, done, skip) {
+  let plan;
+  try { plan = await get(`/api/debrief/plan?bookId=${base.bookId}&rec=${base.recId || ''}&outcome=${base.outcome}`); }
+  catch (e) { toast(e.message); return skip(); }
+  const head = plan.book;
+  const qs = plan.questions;
+  const answers = {}; let text = null; let i = 0;
+  const REACTIONS = { worked: 'Good to know.', bothered: 'That is the useful part. Thank you.', fit_mood: 'Noted.', warning: 'That calibrates me.', more_like: 'Noted for next time.' };
+  const stepQ = (reaction = '') => {
+    if (i >= qs.length) return followup();
+    const q = qs[i];
+    askClosed(q, { index: i, total: qs.length + 1, head, reaction }, (a) => {
+      if (!a.skipped) { if (q.type === 'text') text = a.text; else { answers[q.id] = a.answer; if (a.text) answers[q.id + '_text'] = a.text; } }
+      i++; stepQ(a.skipped ? 'Skipped.' : REACTIONS[q.id] || 'Noted.');
+    });
+  };
+  const followup = async () => {
+    setBar(96);
+    app.innerHTML = h`<div class="interview"><div class="q"><div class="eyebrow">After reading · one more</div><div class="text">Reading what you said against the reviews…</div><p class="help"><span class="spinner"></span> &nbsp;One question written for this book. A few seconds.</p><div class="qactions"><button class="btn ghost" id="skipFu">Skip it</button></div></div></div>`;
+    let skipped = false; document.getElementById('skipFu').onclick = () => { skipped = true; save(); };
+    let fu = null;
+    try { fu = await Promise.race([post('/api/debrief/followup', { ...base, answers, text }), new Promise((r) => setTimeout(() => r(null), 40000))]); } catch { fu = null; }
+    if (skipped) return;
+    if (!fu?.ask) return save();
+    askClosed(fu.question, { index: qs.length, total: qs.length + 1, head, eyebrow: 'After reading · written for this book' }, (a) => {
+      if (!a.skipped) answers.followup = { question: fu.question.text, answer: a.answer, labels: (Array.isArray(a.answer) ? a.answer : a.answer ? [a.answer] : []).map((id) => fu.question.options.find((o) => o.id === id)?.label || id), text: a.text };
+      save();
+    });
+  };
+  const save = async () => {
+    setBar(100);
+    try { const r = await post('/api/debriefs', { ...base, answers, text }); done(r); }
+    catch (e) { toast(e.message); skip(); }
+  };
+  stepQ();
+}
+
 function renderFollowups(list, done) {
   let i = 0;
   const step = () => {
     if (i >= list.length) { setBar(null); return done(); }
     const r = list[i];
-    setBar(Math.round((i / list.length) * 100));
-    app.innerHTML = h`<div class="interview"><div class="q">
-      <div class="meta"><span class="eyebrow">What happened · <span class="tabular">${i + 1} of ${list.length}</span></span></div>
-      <div class="fuhead">${coverImg(r.cover, r.title, 'cover small')}<div><div class="text" style="margin-bottom:4px">${r.title}</div><div class="help" style="margin-bottom:0">${r.author} · suggested ${when(r.created_at)}${r.fit?.headline ? raw(h` · <i>${r.fit.headline}</i>`) : ''}</div></div></div>
-      <div class="opts" style="margin-top:20px">${OUTCOMES.map(([id, label, hint], k) => raw(h`<button class="opt" data-id="${id}"><span class="kbd">${k + 1}</span><span><span class="l">${label}</span><span class="h">${hint}</span></span><span class="ck">✓</span></button>`))}</div>
-      <div id="detail" hidden style="margin-top:16px"></div>
-      <div class="qactions"><button class="btn primary" id="next" hidden>Save and continue <span class="kbd" style="background:transparent;color:inherit;border-color:currentColor;opacity:.7">↵</span></button><button class="btn ghost" id="skipAll">Skip for now</button><span class="hint">Press a number.</span></div>
-    </div></div>`;
-    let outcome = null;
-    const detail = document.getElementById('detail'); const next = document.getElementById('next');
-    const pick = (id) => {
-      outcome = id; app.querySelectorAll('.opt').forEach((x) => x.classList.toggle('on', x.dataset.id === id));
-      detail.hidden = false; next.hidden = false;
-      if (id === 'finished') detail.innerHTML = h`<label class="lbl">Your rating</label><div class="rating-input" data-r="0">${[1, 2, 3, 4, 5].map((n) => raw(h`<span data-n="${n}">★</span>`))}</div><label class="lbl">What worked, what did not? One line is plenty.</label><textarea id="reason" rows="2"></textarea>`;
-      else if (id === 'dropped') detail.innerHTML = h`<label class="lbl">Around which page?</label><input type="number" id="page" min="1" style="width:120px" placeholder="${r.pages ? 'of ' + r.pages : ''}"><label class="lbl">Why? Honest and short. This is the most useful answer in the app.</label><textarea id="reason" rows="2" placeholder="e.g. nothing happened for 80 pages; disliked the narrator; too sad for this month"></textarea>`;
-      else if (id === 'not_interested') detail.innerHTML = h`<label class="lbl">Why not? One line.</label><textarea id="reason" rows="2"></textarea>`;
-      else detail.innerHTML = h`<p class="cap sec">Kept on Up next. It will not be suggested again, and I will ask again later.</p>`;
-      const ri = detail.querySelector('.rating-input'); if (ri) ri.querySelectorAll('span').forEach((sp) => sp.onclick = () => { ri.dataset.r = sp.dataset.n; ri.querySelectorAll('span').forEach((x) => x.classList.toggle('on', Number(x.dataset.n) <= Number(sp.dataset.n))); });
-      const ta = detail.querySelector('textarea'); if (ta) ta.focus();
-    };
-    app.querySelectorAll('.opt').forEach((b) => b.onclick = () => pick(b.dataset.id));
-    next.onclick = async () => {
-      if (!outcome) return;
-      const body = { outcome, reason: detail.querySelector('#reason')?.value.trim() || null, page: Number(detail.querySelector('#page')?.value) || null, rating: Number(detail.querySelector('.rating-input')?.dataset.r) || null };
-      await post(`/api/recommendations/${r.id}/outcome`, body);
-      i++; step();
-    };
-    document.getElementById('skipAll').onclick = () => { setBar(null); done(); };
-    window.onkeydown = (e) => {
-      if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); next.click(); } return; }
-      if (/^[1-4]$/.test(e.key)) { e.preventDefault(); pick(OUTCOMES[Number(e.key) - 1][0]); }
-      else if (e.key === 'Enter') { e.preventDefault(); next.click(); }
-    };
+    askOutcome(r, { index: i, total: list.length }, (body) => {
+      i++;
+      if (body.outcome === 'finished' || body.outcome === 'dropped') runDebrief({ bookId: r.book_id, recId: r.id, ...body }, () => step(), () => step());
+      else step();
+    }, () => { setBar(null); done(); });
   };
   step();
 }
 async function followupsPage() {
   const fu = await get('/api/followups');
-  if (!fu.length) { app.innerHTML = h`<div class="interview"><div class="q"><div class="eyebrow">What happened</div><div class="text">Nothing waiting. Every pick has an outcome.</div><p class="help"><a class="btn" href="#home">Home</a></p></div></div>`; return; }
+  if (!fu.length) { app.innerHTML = h`<div class="interview"><div class="q"><div class="eyebrow">What happened</div><div class="text">Nothing waiting. Every pick has an outcome.</div><p class="help">You can still change any outcome from <a href="#past">Past picks</a>.</p><p><a class="btn" href="#home">Home</a></p></div></div>`; return; }
   renderFollowups(fu, () => { toast('Thank you. That teaches the tool.'); location.hash = 'home'; });
+}
+
+// #debrief/<bookId>/<recId or 0>/<finished|dropped|ask>  (returns to the page it was opened from)
+async function debriefPage(bookId, recId = '0', outcome = 'ask') {
+  bookId = Number(bookId); recId = Number(recId) || null;
+  let back = 'home'; try { back = sessionStorage.getItem('bf-return') || 'home'; } catch {}
+  const b = await get(`/api/books/${bookId}`);
+  const plan = await get(`/api/debrief/plan?bookId=${bookId}&rec=${recId || ''}&outcome=${outcome === 'dropped' ? 'dropped' : 'finished'}`);
+  const r = { id: recId, book_id: bookId, title: b.title, author: b.author, cover: b.cover, pages: b.pages, year: b.year, description: b.description, review_digest: b.review_digest, created_at: plan.rec?.created_at || null, fit: plan.rec ? { headline: plan.rec.headline, risk_for_you: plan.rec.risk_for_you } : {} };
+  const finish = (saved) => { setBar(null); toast(saved ? 'Thank you. That teaches the tool.' : 'Saved.'); location.hash = back; };
+  const start = (body) => runDebrief({ bookId, recId, ...body }, () => finish(true), () => finish(false));
+  if (outcome === 'finished' || outcome === 'dropped') {
+    // Outcome already chosen (home page, book page, shelves): ask only rating or page, then the questions.
+    setBar(0);
+    app.innerHTML = h`<div class="interview"><div class="q"><div class="meta"><span class="eyebrow">After reading</span></div>${bookHead(r)}
+      <div style="margin-top:20px">${outcome === 'finished' ? raw(h`<label class="lbl">Your rating</label><div class="rating-input" data-r="${plan.previous?.rating || 0}">${[1, 2, 3, 4, 5].map((n) => raw(h`<span class="${n <= (plan.previous?.rating || 0) ? 'on' : ''}" data-n="${n}">★</span>`))}</div>`) : raw(h`<label class="lbl">Around which page did you stop?</label><input type="number" id="page" min="1" style="width:120px" placeholder="${b.pages ? 'of ' + b.pages : ''}">`)}
+      ${plan.previous ? raw(h`<p class="cap sec" style="margin-top:12px">You debriefed this one on ${when(plan.previous.created_at)}. Doing it again replaces what the tool reads.</p>`) : ''}</div>
+      <div class="qactions"><button class="btn primary" id="go">Continue <span class="kbd" style="background:transparent;color:inherit;border-color:currentColor;opacity:.7">↵</span></button><a class="btn ghost" href="#${back}">Cancel</a><span class="hint">${outcome === 'finished' ? 'Five quick questions follow.' : 'Four quick questions follow.'}</span></div></div></div>`;
+    wireRemind();
+    const ri = app.querySelector('.rating-input'); if (ri) ri.querySelectorAll('span').forEach((sp) => sp.onclick = () => { ri.dataset.r = sp.dataset.n; ri.querySelectorAll('span').forEach((x) => x.classList.toggle('on', Number(x.dataset.n) <= Number(sp.dataset.n))); });
+    const go = () => start({ outcome, rating: Number(ri?.dataset.r) || null, page: Number(document.getElementById('page')?.value) || null, reason: null });
+    document.getElementById('go').onclick = go;
+    window.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } };
+    return;
+  }
+  // Ask the outcome first (Past picks, results page): finished / dropped / keep / not interested.
+  const prev = plan.rec?.feedback ? { feedback: plan.rec.feedback, outcome: plan.rec.outcome, feedback_note: null } : null;
+  askOutcome(r, { previous: prev }, (body) => {
+    if (body.outcome === 'finished' || body.outcome === 'dropped') start(body);
+    else if (recId) finish(false);
+    else { toast('Only finished or dropped books get a debrief.'); location.hash = back; }
+  }, () => (location.hash = back));
+}
+const goDebrief = (bookId, recId, outcome = 'ask') => { try { sessionStorage.setItem('bf-return', location.hash.slice(1) || 'home'); } catch {} location.hash = `debrief/${bookId}/${recId || 0}/${outcome}`; };
+function outcomeChip(r) {
+  if (!r.feedback) return raw('<span class="chip">no outcome yet</span>');
+  const o = r.outcome || {};
+  const txt = `${labelFeedback(r.feedback)}${o.rating ? ` · ${'★'.repeat(o.rating)}` : ''}${o.page ? ` · p. ${o.page}` : ''}`;
+  const cls = r.feedback === 'finished' ? 'lamp' : r.feedback === 'dropped' || r.feedback === 'not_for_me' ? 'amber' : '';
+  return raw(h`<span class="chip ${cls}" title="${r.feedback_note || ''}">${txt}</span>${r.debrief_id ? raw('<span class="chip lamp" title="Debriefed">debriefed ✓</span>') : ''}`);
+}
+
+// ---------- past picks: every report, every book, with what became of it ----------
+async function past() {
+  const list = await get('/api/past');
+  const MODE = { quick: 'quick check-in', path: 'reading path', gift: 'gift for someone else', full: 'full interview' };
+  const total = list.reduce((a, s) => a + s.picks.filter((p) => p.fit?.kind !== 'runner_up').length, 0);
+  const untold = list.reduce((a, s) => a + s.picks.filter((p) => p.fit?.kind !== 'runner_up' && !p.feedback && s.mode !== 'gift').length, 0);
+  app.innerHTML = h`<section class="section" style="padding-top:8px"><div class="row between"><h1>Past picks</h1>${untold ? raw(h`<a class="btn sm primary" href="#followups">Tell me about the ${untold} without an outcome</a>`) : ''}</div>
+    <p class="sec" style="margin-top:12px;max-width:65ch">Every report the tool has written, newest first, and what became of each book. ${total ? `${total} ${total === 1 ? 'pick' : 'picks'} so far.` : ''} Open a report to reread it; use "What happened?" on any book to record, rate, review or correct it. Everything you say here feeds the next recommendation.</p></section>
+  ${list.length ? list.map((s) => raw(h`<section class="section pastsess">
+    <div class="row between" style="align-items:flex-start"><div><div class="eyebrow">${when(s.started_at)} · ${MODE[s.mode] || s.mode}${s.status === 'researching' ? ' · still researching' : ''}</div>${s.reader_now ? raw(h`<p class="readernow" style="margin-top:10px;font-size:18px;max-width:65ch">${s.reader_now}</p>`) : ''}</div><div class="row noprint"><a class="btn sm" href="#results/${s.id}">Open the report</a><button class="btn sm ghost" data-del="${s.id}" title="Delete this report">✕</button></div></div>
+    <div class="pastpicks">${s.picks.filter((p) => p.fit?.kind !== 'runner_up').map((p) => raw(h`<div class="pastpick">
+      <a href="#book/${p.book_id}">${coverImg(p.cover, p.title, 'cover small')}</a>
+      <div><div class="ttl"><a href="#book/${p.book_id}" style="color:inherit">${p.title}</a></div><div class="by">${p.author || ''}${p.year ? ` · ${p.year}` : ''}${p.pages ? ` · ${p.pages} pages` : ''}${p.slot ? ` · ${p.slot.replace(/_/g, ' ')}` : ''}</div>${p.fit?.headline ? raw(h`<div class="cap sec" style="margin-top:4px"><i>${p.fit.headline}</i></div>`) : ''}
+        <div class="row" style="margin-top:8px;gap:8px">${outcomeChip(p)}${p.feedback_note ? raw(h`<span class="cap sec">${p.feedback_note.slice(0, 140)}</span>`) : ''}</div></div>
+      <div class="row" style="align-self:center">${s.mode === 'gift' ? '' : raw(h`<button class="btn sm" data-happened="${p.id}" data-book="${p.book_id}">${p.feedback ? 'Change' : 'What happened?'}</button>`)}${p.debrief_id ? raw(h`<a class="btn sm ghost" href="#book/${p.book_id}">Review</a>`) : ''}</div>
+    </div>`))}</div>
+    ${s.picks.some((p) => p.fit?.kind === 'runner_up') ? raw(h`<details><summary>Also considered (${s.picks.filter((p) => p.fit?.kind === 'runner_up').length})</summary><div class="row" style="gap:8px;margin-top:8px">${s.picks.filter((p) => p.fit?.kind === 'runner_up').map((p) => raw(h`<a class="chip" href="#book/${p.book_id}">${p.title}</a>`))}</div></details>`) : ''}
+  </section>`)) : raw(h`<section class="section"><div class="empty">${raw(STACK)}<div class="big">No reports yet</div><div>Run an interview and the picks land here, with what became of each.</div><a class="btn primary" href="#home">Find a book</a></div></section>`)}`;
+  app.querySelectorAll('[data-happened]').forEach((b) => b.onclick = () => goDebrief(b.dataset.book, b.dataset.happened, 'ask'));
+  app.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => { if (!confirm('Delete this report and its picks? The books stay on your shelves.')) return; await del(`/api/sessions/${b.dataset.del}`); past(); });
 }
 
 async function renderQuestion(id, nx, mode, reaction) {
@@ -363,6 +543,7 @@ async function results(id) {
   <section class="section row"><a class="btn" href="#home">New search</a><button class="btn" id="again">Same answers, different picks</button><span class="cap sec">Re-runs the research excluding everything shown here.</span></section>`;
   wireShelfButtons();
   wireChats();
+  app.querySelectorAll('[data-happened]').forEach((b) => b.onclick = () => goDebrief(b.dataset.book, b.dataset.happened, 'ask'));
   document.getElementById('slateChatBtn').onclick = () => { const el = document.getElementById('slateChat'); el.hidden = !el.hidden; if (!el.hidden) el.querySelector('textarea')?.focus(); };
   document.getElementById('copyMd').onclick = async () => { const t = await (await fetch(`/api/sessions/${id}/export`)).text(); try { await navigator.clipboard.writeText(t); toast('Copied the slate as text'); } catch { toast('Could not copy; use Download instead'); } };
   document.getElementById('printBtn').onclick = () => window.print();
@@ -430,7 +611,7 @@ function pickCard(r, shelves, sessionId, giftFor = null, inPath = false) {
       <details><summary>Description</summary><p class="prose" style="font-size:17px">${(r.description || '').slice(0, 1200)}</p><p class="cap"><a href="${r.url}" target="_blank" rel="noopener">Open on Goodreads ↗</a></p></details>
       ${getLinks(r)}
       <div class="actions">${giftFor ? raw(h`<button class="btn sm primary" data-shelf="Gifts" data-rec="${r.id}" data-ask="Who is it for, and any note?" data-prefill="For ${giftFor}">Choose as the gift</button><button class="btn sm ghost" data-shelf="Not for me" data-rec="${r.id}" data-ask="Why not for them? One line.">Not for them</button>`) : shelfMenu(r, shelves)}<span class="saved" data-saved="${r.id}">${r.feedback ? labelFeedback(r.feedback) : ''}</span></div>
-      <div class="actions noprint" style="border:0;padding-top:8px;margin-top:4px"><button class="btn sm" data-chattoggle="chat-${r.book_id}">Ask about this book</button></div>
+      <div class="actions noprint" style="border:0;padding-top:8px;margin-top:4px"><button class="btn sm" data-chattoggle="chat-${r.book_id}">Ask about this book</button>${giftFor ? '' : raw(h`<button class="btn sm ${r.feedback ? 'ghost' : ''}" data-happened="${r.id}" data-book="${r.book_id}">${r.feedback ? 'Change what happened' : 'Read it? What happened'}</button>`)}${r.feedback ? outcomeChip(r) : ''}</div>
       <div id="chat-${r.book_id}" hidden>${chatPanel({ bookId: r.book_id, sessionId, starters: ['How slow is the opening, honestly?', 'How dark does it get?', 'Anything in it that would bother me?', 'What is it actually about, no spoilers?', 'Why this over the runners-up?', 'Is there a Polish edition or a good audiobook?'] })}</div>
     </div></article>`);
 }
@@ -530,6 +711,27 @@ function verdictBlock(v, when_) {
   </div>`);
 }
 const labelFeedback = (f) => ({ saved: 'Saved', not_now: 'Not now', not_for_me: 'Not for me', already_read: 'Already read', started: 'Reading now', finished: 'Finished', dropped: 'Dropped', later: 'Up next' }[f] || f);
+const DEBRIEF_WORDS = {
+  worked: { characters: 'the people', voice: 'the voice and sentences', pull: 'the pull', atmosphere: 'the atmosphere', ideas: 'the ideas', feeling: 'the feeling', structure: 'the shape', nothing: 'nothing much' },
+  bothered: { slow_start: 'slow start', too_long: 'dragged or too long', prose: 'the prose', characters: 'the people', too_dark: 'too dark or heavy', too_light: 'too light or silly', predictable: 'predictable', confusing: 'confusing', ending: 'the ending', content: 'content I did not want', wrong_moment: 'wrong moment', nothing: 'nothing really' },
+  fit_mood: { exactly: 'exactly', partly: 'partly', other_job: 'it did something else', wrong_moment: 'wrong moment', wrong_book: 'wrong book' },
+  warning: { exactly: 'yes, exactly that', partly: 'partly', elsewhere: 'no, the problem was elsewhere', no_problem: 'no problem at all' },
+  more_like: { author: 'more by this author', feeling: 'more of this feeling', different: 'something different now', never: 'never again' },
+};
+const debriefWords = (k, v) => (Array.isArray(v) ? v : v ? [v] : []).map((x) => DEBRIEF_WORDS[k]?.[x] || String(x).replace(/_/g, ' ')).join(', ');
+function debriefSummary(d) {
+  const a = d.answers || {};
+  return raw(h`<p class="cap sec" style="margin-top:4px">${d.outcome === 'dropped' ? `Dropped${d.page ? ' around page ' + d.page : ''}` : 'Finished'}${d.rating ? raw(h` · <span style="color:var(--amber)">${'★'.repeat(d.rating)}</span>`) : ''} · ${when(d.created_at)}</p>
+    <dl class="facts">
+      ${a.worked?.length ? raw(h`<dt>What did the work</dt><dd>${debriefWords('worked', a.worked)}${a.worked_text ? raw(h` · <i>${a.worked_text}</i>`) : ''}</dd>`) : ''}
+      ${a.bothered?.length ? raw(h`<dt>What bothered</dt><dd>${debriefWords('bothered', a.bothered)}${a.bothered_text ? raw(h` · <i>${a.bothered_text}</i>`) : ''}</dd>`) : ''}
+      ${a.fit_mood ? raw(h`<dt>Did the job</dt><dd>${debriefWords('fit_mood', a.fit_mood)}</dd>`) : ''}
+      ${a.warning ? raw(h`<dt>The warning was</dt><dd>${debriefWords('warning', a.warning)}</dd>`) : ''}
+      ${a.more_like ? raw(h`<dt>Next</dt><dd>${debriefWords('more_like', a.more_like)}</dd>`) : ''}
+      ${a.followup?.question ? raw(h`<dt>${a.followup.question}</dt><dd>${(a.followup.labels || []).join(', ')}${a.followup.text ? raw(h` · <i>${a.followup.text}</i>`) : ''}</dd>`) : ''}
+      ${d.text ? raw(h`<dt>In your words</dt><dd><i>${d.text}</i></dd>`) : ''}
+    </dl>`);
+}
 function shelfMenu(r, shelves) {
   return raw(h`${['Up next', 'Someday', 'Maybe'].map((n) => raw(h`<button class="btn sm" data-shelf="${n}" data-rec="${r.id}">${n}</button>`))}
     <button class="btn sm" data-shelf="Reading now" data-rec="${r.id}">Reading now</button>
@@ -574,8 +776,10 @@ async function book(id) {
       <p class="prose" style="margin-top:16px">${b.description}</p>
       <p class="cap" style="margin-top:8px"><a href="${b.url}" target="_blank" rel="noopener">Open on Goodreads ↗</a></p>
       ${getLinks(b)}<p class="cap noprint" style="margin-top:6px"><button class="linkbtn" id="plCheck">${b.extra?.lubimyczytac ? 'Re-check the Polish edition' : 'Check for a Polish edition and audiobook'}</button></p>
-      <div class="actions">${['Reading now', 'Up next', 'Someday', 'Maybe', 'Finished', 'Did not finish', 'Not for me'].map((n) => raw(h`<button class="btn sm" data-add="${n}">${n}</button>`))}<span class="cap sec">On: ${b.shelves.map((s) => s.name).join(', ') || 'no shelf yet'}</span></div>
+      <div class="actions">${['Reading now', 'Up next', 'Someday', 'Maybe', 'Not for me'].map((n) => raw(h`<button class="btn sm" data-add="${n}">${n}</button>`))}<button class="btn sm primary" id="debFinished">Finished it</button><button class="btn sm" id="debDropped">Did not finish</button><span class="cap sec">On: ${b.shelves.map((s) => s.name).join(', ') || 'no shelf yet'}</span></div>
+      ${b.rec ? raw(h`<p class="cap sec" style="margin-top:8px">Suggested in <a href="#results/${b.rec.session_id}">a report</a>${b.rec.feedback ? `; outcome so far: ${labelFeedback(b.rec.feedback)}` : '; no outcome recorded yet'}.</p>`) : ''}
     </div></article>
+  ${b.debrief ? raw(h`<section class="section"><div class="row between"><h2>What you said after reading</h2><button class="btn sm" id="debAgain">Debrief again</button></div>${debriefSummary(b.debrief)}</section>`) : ''}
   <section class="section"><div class="row between"><h2>Reading it?</h2><div class="row"><label class="cap sec" for="pageIn">I am on page</label><input type="number" id="pageIn" min="0" value="${b.progress || ''}" style="width:110px" placeholder="${b.pages ? 'of ' + b.pages : ''}"><button class="btn sm" id="pageSave">Save</button></div></div>
     <p class="cap sec" style="margin-top:6px">With a page set, the conversation below keeps everything after it secret, and "is it worth continuing?" gets an honest answer from the later reviews and your own history of dropping books.</p>
     <div style="margin-top:16px"><label class="lbl">A line you underlined, or a note while reading</label><div class="row"><textarea id="noteText" rows="2" style="flex:1;min-width:240px" placeholder="Paste or type the sentence. What you underline says more about your taste than any rating."></textarea><input type="number" id="notePage" min="0" style="width:90px" placeholder="page"><button class="btn sm" id="noteSave">Keep it</button></div></div>
@@ -597,6 +801,9 @@ async function book(id) {
     let note = null; if (['Not for me', 'Did not finish'].includes(shelf.name)) { note = prompt('Why? One line helps the tool learn.'); if (note === null) return; }
     await post(`/api/shelves/${shelf.id}/items`, { bookId: b.id, note }); toast(`Added to ${shelf.name}`); book(id);
   });
+  document.getElementById('debFinished').onclick = () => goDebrief(b.id, b.rec?.id, 'finished');
+  document.getElementById('debDropped').onclick = () => goDebrief(b.id, b.rec?.id, 'dropped');
+  const da = document.getElementById('debAgain'); if (da) da.onclick = () => goDebrief(b.id, b.rec?.id, b.debrief.outcome);
   const dg = document.getElementById('digest'); if (dg) dg.onclick = async () => { dg.disabled = true; dg.textContent = 'Reading…'; await post(`/api/books/${id}/digest`); book(id); };
   document.getElementById('pageSave').onclick = async () => {
     const page = Number(document.getElementById('pageIn').value) || 0;
@@ -637,6 +844,7 @@ async function shelves(activeId) {
             ${active.name === 'Finished' ? raw(h`<div class="rating-input" data-r="${it.my_rating || 0}">${[1, 2, 3, 4, 5].map((n) => raw(h`<span class="${n <= (it.my_rating || 0) ? 'on' : ''}" data-n="${n}">★</span>`))}</div>`) : ''}
             <textarea class="verdict" placeholder="${active.name === 'Finished' ? 'What worked, what did not, would you reread? This feeds your Reader DNA.' : 'For example: 80 pages; nothing happened and I disliked the narrator.'}">${it.my_verdict?.text || ''}</textarea>`) : ''}
           <div class="row" style="margin-top:12px"><button class="btn sm primary save">Save</button>
+            ${verdictShelf ? raw(h`<button class="btn sm deb" data-book="${it.book_id}" data-outcome="${active.name === 'Finished' ? 'finished' : 'dropped'}">${it.my_verdict?.debrief_id ? 'Debrief again' : 'Tell me about it'}</button>`) : active.name === 'Reading now' ? raw(h`<button class="btn sm deb" data-book="${it.book_id}" data-outcome="finished">Finished it</button><button class="btn sm ghost deb" data-book="${it.book_id}" data-outcome="dropped">Dropped it</button>`) : ''}
             <select class="btn sm move" style="width:auto"><option value="">Move to…</option>${list.filter((s) => s.id !== active.id).map((s) => raw(h`<option value="${s.id}">${s.name}</option>`))}</select>
             <button class="btn sm ghost rm">Remove</button></div>
         </div></div>`)) : raw(h`<div class="empty">${raw(STACK)}<div class="big">Nothing here yet</div><div>Save a recommendation from a results page, or add a book by search, and it lands on this shelf.</div><a class="btn primary" href="#home">Find a book</a></div>`)}</div>
@@ -662,6 +870,7 @@ async function shelves(activeId) {
       toast('Saved');
     };
     el.querySelector('.rm').onclick = async () => { await del(`/api/shelf-items/${id}`); shelves(active.id); };
+    el.querySelectorAll('.deb').forEach((b) => b.onclick = () => goDebrief(b.dataset.book, 0, b.dataset.outcome));
     el.querySelector('.move').onchange = async (e) => {
       const target = list.find((s) => String(s.id) === e.target.value); if (!target) return;
       const it = items.find((x) => String(x.id) === id);
@@ -679,7 +888,8 @@ async function profile() {
   const dna = p.facts.find((f) => f.key === 'reader_dna');
   const answered = p.facts.filter((f) => f.source === 'answer' && f.key !== 'onboarding_completed');
   const inferred = p.facts.filter((f) => f.source === 'inferred' && !['reader_dna', 'questions_next_time'].includes(f.key));
-  const rejected = p.facts.filter((f) => f.source === 'feedback');
+  const rejected = p.facts.filter((f) => f.source === 'feedback' && !f.key.startsWith('after_'));
+  const after = p.facts.filter((f) => f.key.startsWith('after_'));
   const qmap = Object.fromEntries(p.questions.map((q) => [q.id, q]));
   const [moods, st, ins, notes] = await Promise.all([get('/api/moods'), get('/api/state'), get('/api/insights'), get('/api/notes')]);
   const ar = st.autoReflect || {};
@@ -693,6 +903,10 @@ async function profile() {
     ${ins.sayVsDo.sentences.length ? raw(h`<div class="msum">${ins.sayVsDo.sentences.map((x) => raw(h`<p>${x}</p>`))}</div>`) : raw('<p class="sec" style="margin-top:12px">Patterns appear once a few picks have outcomes. The home page asks after each session.</p>')}
     ${Object.keys(ins.sayVsDo.need).length ? raw(h`<div class="tablewrap" style="margin-top:16px"><table><tr><th>You asked the book to</th><th class="num">Picks</th><th class="num">Finished</th><th class="num">Dropped</th><th>Finished books were</th><th>Dropped books were</th></tr>${Object.entries(ins.sayVsDo.need).map(([k, g]) => raw(h`<tr><td>${k}</td><td class="num">${g.picks}</td><td class="num">${g.finished}</td><td class="num">${g.dropped}</td><td class="sec">${g.finishedTags.join(', ')}</td><td class="sec">${g.droppedTags.join(', ')}</td></tr>`))}</table></div>`) : ''}
   </section>
+  <section class="section"><h2>After reading</h2><p class="cap sec" style="margin-top:4px">What you said right after each book: the freshest evidence the tool has, read before anything else. ${ins.afterReading?.n ? `${ins.afterReading.n} ${ins.afterReading.n === 1 ? 'debrief' : 'debriefs'} so far.` : ''}</p>
+    ${ins.afterReading?.sentences?.length ? raw(h`<div class="msum">${ins.afterReading.sentences.map((x) => raw(h`<p>${x}</p>`))}</div>`) : raw('<p class="sec" style="margin-top:12px">Patterns appear after two or three debriefs. Finish or drop a book, then say what happened: from the home page, a book page, the shelves or Past picks.</p>')}
+    ${after.length ? raw(h`<div style="margin-top:12px">${after.slice(0, 12).map((f) => raw(h`<div class="fact"><div>${f.value?.line || ''}</div><div class="m">${when(f.observed_at)} · <a href="#" data-delfact="${f.id}">delete</a></div></div>`))}</div>`) : ''}
+    <p style="margin-top:12px"><a class="btn sm" href="#past">Past picks</a></p></section>
   <section class="section"><h2>Appeal fingerprint</h2><p class="cap sec" style="margin-top:4px">From every book you have a verdict on and that has a review digest (${ins.fingerprint.books} books). Finish rate and your average rating per appeal factor. Enrich your history on the History page to feed it.</p>
     ${ins.fingerprint.rows.length ? raw(h`${ins.fingerprint.loved.length ? raw(h`<p style="margin-top:12px"><b>You rate highest:</b> ${ins.fingerprint.loved.slice(0, 5).map((r) => `${r.tag} (${r.avg_rating}/5, ${r.n})`).join(' · ')}</p>`) : ''}${ins.fingerprint.dropped.length ? raw(h`<p style="margin-top:6px"><b>You drop most:</b> ${ins.fingerprint.dropped.slice(0, 5).map((r) => `${r.tag} (${r.dnf} of ${r.n})`).join(' · ')}</p>`) : ''}
     <div class="tablewrap" style="margin-top:12px"><table><tr><th>Appeal</th><th class="num">Books</th><th class="num">Finished</th><th class="num">Dropped</th><th class="num">Your avg</th><th>For example</th></tr>${ins.fingerprint.rows.slice(0, 25).map((r) => raw(h`<tr><td>${r.tag}</td><td class="num">${r.n}</td><td class="num">${r.finished}</td><td class="num">${r.dnf}</td><td class="num">${r.avg_rating ?? ''}</td><td class="sec">${r.titles.slice(0, 2).join(', ')}</td></tr>`))}</table></div>`) : raw('<p class="sec" style="margin-top:12px">Needs at least two books per factor. Import and enrich your history, or rate what you finish.</p>')}
@@ -701,7 +915,7 @@ async function profile() {
     <p style="margin-top:16px"><a class="btn sm" href="#report">Reading report</a></p></section>
   <section class="section"><h2>Your answers</h2><p class="cap sec" style="margin-top:4px">Stable taste. Each keeps its date; earlier answers stay in history.</p><div style="margin-top:12px">${answered.map((f) => raw(h`<div class="fact"><div class="k">${qmap[f.key]?.text || f.key}</div><div>${(f.value?.labels || []).join(', ')}${f.value?.text ? raw(h`${f.value.labels?.length ? ' · ' : ''}<i>${f.value.text}</i>`) : ''}</div><div class="m">${when(f.observed_at)} · <a href="#" data-hist="${f.key}">history</a></div></div>`))}</div></section>
   <section class="section"><h2>Inferred patterns</h2><p class="cap sec" style="margin-top:4px">From history, verdicts and feedback. Delete anything wrong.</p><div style="margin-top:12px">${inferred.length ? inferred.map((f) => raw(h`<div class="fact"><div class="k">${f.key.replace(/^inferred_/, '').replace(/_/g, ' ')} <span class="chip">${Math.round(f.confidence * 100)}% sure</span></div><div>${typeof f.value === 'string' ? f.value : JSON.stringify(f.value)}</div><div class="m">${f.note || ''} · <a href="#" data-delfact="${f.id}">delete</a></div></div>`)) : raw('<p class="sec">Nothing yet.</p>')}
-    ${rejected.length ? raw(h`<h3 style="margin-top:24px">Rejections you explained</h3>${rejected.map((f) => raw(h`<div class="fact"><div>${f.value?.note}</div><div class="m"><a href="#" data-delfact="${f.id}">delete</a></div></div>`))}`) : ''}</div></section>
+    ${rejected.length ? raw(h`<h3 style="margin-top:24px">Rejections and drops you explained</h3>${rejected.map((f) => raw(h`<div class="fact"><div>${f.value?.note || f.value?.line || (typeof f.value === 'string' ? f.value : '')}</div><div class="m">${f.note || ''} · ${when(f.observed_at)} · <a href="#" data-delfact="${f.id}">delete</a></div></div>`))}`) : ''}</div></section>
   `;
   wireMoodChart();
   document.getElementById('reflect').onclick = async (e) => { e.target.disabled = true; e.target.textContent = 'Thinking (one or two minutes)…'; try { await post('/api/profile/reflect'); profile(); } catch (err) { toast(err.message); e.target.disabled = false; } };

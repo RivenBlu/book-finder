@@ -95,7 +95,8 @@ export async function runRecommendation(sessionId) {
       polish_edition: x.book.extra?.lubimyczytac || null, hardcover_tags: x.book.extra?.hardcover || null,
       review_digest: x.book.review_digest || null,
     }));
-    const header = `BRIEF (JSON):\n${JSON.stringify(brief, null, 1)}\n\nREADER DNA:\n${gift ? '(gift: not applicable)' : ctx.reader_dna || '(none yet)'}\n\nTODAY'S ANSWERS:\n${JSON.stringify(ctx.session_answers, null, 1)}\n\nENRICHED CANDIDATES (JSON, index = candidate_index):\n${JSON.stringify(packed, null, 1)}`;
+    const after = !gift && ctx.after_reading ? `\n\nAFTER RECENT BOOKS (the reader's own debriefs, freshest evidence; match candidates' complaints against what bothered them):\n${[...(ctx.after_reading.patterns || []), ...ctx.after_reading.books.slice(0, 12)].join('\n')}` : '';
+    const header = `BRIEF (JSON):\n${JSON.stringify(brief, null, 1)}\n\nREADER DNA:\n${gift ? '(gift: not applicable)' : ctx.reader_dna || '(none yet)'}\n\nTODAY'S ANSWERS:\n${JSON.stringify(ctx.session_answers, null, 1)}${after}\n\nENRICHED CANDIDATES (JSON, index = candidate_index):\n${JSON.stringify(packed, null, 1)}`;
     db.prepare('DELETE FROM recommendations WHERE session_id = ?').run(sessionId);
 
     if (path) {

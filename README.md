@@ -49,7 +49,11 @@ Every answer is stored with a timestamp. Trait answers are superseded, never ove
 
 ## Closing the loop
 
-At the start of every new session the tool shows the books it last suggested and asks what happened: finished (rate it, one line), dropped (around which page, why), not started yet, or not interested after all. One screen per book, number keys. This is where the tool learns most. The home page shows how many are waiting; "Report" and "Reader DNA" show what the answers add up to:
+At the start of every new session the tool shows the books it last suggested and asks what happened: finished (rate it), dropped (around which page), not started yet, or not interested after all. One screen per book, number keys, with "Remind me what it was" (the description, why it was suggested, the risk the tool named) and a link to the book page. This is where the tool learns most.
+
+**After reading.** Finished or dropped leads straight into a two-minute debrief while it is fresh: what did the work (the people, the voice, the pull, the atmosphere, the ideas, the feeling, the shape), what bothered you (slow start, dragged, prose, people, too dark, too light, predictable, confusing, the ending, unwanted content, wrong moment), did it do the job you needed, was the risk the tool named the actual problem, what next (more by the author, more of this feeling, something different, never again), and your own words. Then one more question written for that book by the model, from the reviews and what you just said ("You liked Lara but not the king: what held him back?"). Debriefs can also start from the home page (Reading now), any book page ("Finished it" / "Did not finish"), the Finished and Did not finish shelves, and Past picks, so books you read outside a recommendation count too. The debrief is stored as the strongest evidence there is: the brief reads it before anything else, the ranker is told what bothered you recently and penalises candidates whose complaints match, the Reader DNA rebuild weighs it above self-described taste, and the "Should I read this?" verdict sees it. Patterns ("what bothered you most often", "the tool's warning was right 3 of 5 times") appear on the Reader DNA page.
+
+**Past picks** (in the top bar) lists every report the tool has written, newest first, with how it read you that day and every book: outcome, rating, debrief, and a "What happened?" / "Change" button to record or correct any of it. Each report opens in full; the results page carries the same buttons per book. The home page shows how many picks are waiting for an outcome; "Report" and "Reader DNA" show what the answers add up to:
 
 - **What you say versus what you do**: what you asked for in each mood against what you actually finished, with the appeal factors of the finished and the dropped books.
 - **Appeal fingerprint**: finish rate and your average rating per appeal factor (pace, tone, style, moods, length, demand), across every book with a verdict and a review digest.
@@ -73,7 +77,7 @@ Every pick on a results page, and every book page, has **Ask about this book**: 
 
 ## For someone else
 
-"For someone else" asks eight questions about the recipient (who they are, what they loved, what they would hate, how much they read, the occasion, what the book should do, language and format). Your own profile stays out of it. Picks go to the Gifts shelf with a note of who they were for.
+"A gift for someone else" asks eight questions about the recipient (who they are, what they loved, what they would hate, how much they read, the occasion, what the book should do, language and format). Your own profile stays out of it. Picks go to the Gifts shelf with a note of who they were for.
 
 ## Where to get it
 
@@ -136,7 +140,7 @@ src/pipeline/interview.js  next-question logic, adaptive follow-ups
 src/pipeline/recommend.js  brief -> long list -> enrich -> digest -> rank
 src/pipeline/reflect.js    Reader DNA rebuild, CSV import
 src/pipeline/talk.js       conversations about a book or slate, "should I read this?" verdicts, Markdown export, weekly auto-rebuild
-src/pipeline/insights.js   loop closer outcomes, reports, history enrichment, "which book by this author next"
+src/pipeline/insights.js   loop closer outcomes, after-reading debriefs, reports, history enrichment, "which book by this author next"
 src/pipeline/evidence.js   say-versus-do and the appeal fingerprint (pure functions over the database)
 src/ops.js                 backups, parser health check, export/import, home-network mode
 tests/                     node --test suite with saved parser fixtures
