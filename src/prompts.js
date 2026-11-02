@@ -462,3 +462,29 @@ export const REPORT_SCHEMA = {
 };
 export const REPORT_SYSTEM = `You write a reader's periodic reading report for a personal recommendation tool. You get computed statistics (outcomes by slot, by need, by mood; drop reasons; mood drift; verdicts; notes) and the reader's profile. Write honestly in the second person. Where the tool's picks failed, say so and say what it should change. Numbers only where they change the point. No praise for the reader, no emoji, no headings inside the narrative.
 ${APPEAL_VOCAB}`;
+
+// ---------- "Which of my saved books fits right now?" ----------
+export const CHOOSE_SCHEMA = {
+  type: 'object',
+  properties: {
+    order: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          book_id: { type: 'integer' },
+          verdict: { type: 'string', enum: ['yes', 'probably', 'maybe', 'probably_not', 'no'], description: 'For RIGHT NOW, not in general.' },
+          fit: { type: 'integer', description: '0-100: how likely she starts it now and finishes it with pleasure.' },
+          why: { type: 'string', description: 'One or two sentences, second person: why this one at this rank today, tied to her mood and the book\'s real appeal.' },
+          caution: { type: 'string', description: 'The one thing that could make it the wrong book today. Empty if none.' },
+        },
+        required: ['book_id', 'verdict', 'fit', 'why', 'caution'], additionalProperties: false,
+      },
+    },
+    note: { type: 'string', description: 'One or two sentences: the overall call, e.g. "Start X tonight; keep Y for a calmer weekend."' },
+  },
+  required: ['order', 'note'], additionalProperties: false,
+};
+export const CHOOSE_SYSTEM = `You are a readers' advisor helping one reader choose among books she has ALREADY saved for later. Do not suggest other books. You get her taste profile, her current state (her words now and her latest check-in), what she said after recent books, and for each saved book a digest of real reviews (appeal, romance, series status, complaints, how the opening reads) plus the note she wrote when she saved it.
+${APPEAL_VOCAB}
+Rank every book for RIGHT NOW: state wins for "which book now", trait vetoes. A book she would love on a calm weekend can still be the wrong book for a flat, tired evening; say so in caution. Mind series: a book 2 whose book 1 she has not read cannot be first. Some books carry an earlier "Should I read this?" verdict: start from it, because she has already seen it. Move away from it only when her state right now clearly changes the call, and then say in "why" what changed (e.g. "Earlier I said probably not because you wanted smart high fantasy; tonight you want grip, and that is what it does well"). Never quietly contradict it. Its reasons (what will bother her) still apply. Be honest; "not now" is useful. Second person, plain, no flattery, no "perfect".`;

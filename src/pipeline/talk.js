@@ -1,7 +1,8 @@
 // Talking about books: conversation about one book or a slate, the "should I read this?" verdict,
 // a Markdown export of a slate, and the weekly automatic Reader DNA rebuild.
 import { ask } from '../llm.js';
-import { chatSystem, VERDICT_SCHEMA, VERDICT_SYSTEM } from '../prompts.js';
+import { chatSystem, VERDICT_SCHEMA, VERDICT_SYSTEM, CHOOSE_SCHEMA, CHOOSE_SYSTEM } from '../prompts.js';
+import { debriefPatterns } from './evidence.js';
 import * as DB from '../db.js';
 import { fullContext, answersDigest, traitProfile, readerDna } from './context.js';
 import { digestBook } from './recommend.js';
@@ -157,4 +158,32 @@ export function autoReflectStatus() {
   const on = DB.getSetting('auto_reflect', 'true') === 'true';
   const next = last ? new Date(Date.parse(last) + 7 * 864e5).toISOString() : null;
   return { on, last, next, newEvidence: DB.evidenceStamp() !== DB.getSetting('last_reflect_stamp') };
+}
+
+// ---------- choose among saved books ----------
+// "Which of these fits me right now?" for Up next / Someday / Maybe: ranks only books she already saved.
+export async function chooseFromShelf(shelfId, { now = '' } = {}) {
+  const shelf = DB.listShelves().find((s) => s.id === shelfId);
+  if (!shelf) throw new Error('no such shelf');
+  const items = DB.shelfItems(shelfId).slice(0, 15);
+  if (items.length < 2) throw new Error('Save at least two books on this shelf first.');
+  // Real review data for each book (cached; only missing or stale digests are written now).
+  await Promise.all(items.map(async (it) => { const b = DB.getBook(it.book_id); if (b && DB.digestStale(b)) { try { await digestBook(b); } catch {} } }));
+  const books = items.map((it) => {
+    const b = DB.getBook(it.book_id); const d = b?.review_digest || {};
+    return { book_id: it.book_id, title: b?.title, author: b?.author, pages: b?.pages, saved_note: it.note || '', saved_on: it.added_at?.slice(0, 10),
+      one_line: d.one_line, appeal: d.appeal, romance: d.romance, series: d.series, first_100_pages: d.first_100_pages, complaints: (d.complaints || []).slice(0, 3), content_notes: d.content_notes,
+      earlier_verdict: (() => { const v = DB.latestVerdict(it.book_id); return v ? { date: v.created_at.slice(0, 10), verdict: v.verdict.verdict, fit: v.verdict.fit, headline: v.verdict.headline, will_bother_you: v.verdict.will_bother_you } : undefined; })() };
+  });
+  const last = DB.listSessions(5).find((s) => !['onboarding', 'gift'].includes(s.mode));
+  const recent = last && Date.now() - Date.parse(last.started_at) < 7 * 864e5 ? { date: last.started_at.slice(0, 10), answers: answersDigest(last.id).filter((a) => a.layer !== 'onboarding'), must_haves: last.brief?.must_haves || [] } : null;
+  const reader = { reader_dna: readerDna(), traits: compactTraits(), mood_log: DB.moodLog(4), latest_checkin: recent, after_recent_books: debriefPatterns()?.sentences || undefined };
+  const prompt = `READER (JSON):\n${JSON.stringify(reader, null, 1)}\n\nHOW SHE IS RIGHT NOW (her words, most important if given): ${now.trim() || '(not given; use the latest check-in and mood log, and say if they are old)'}\n\nSAVED BOOKS on "${shelf.name}" (JSON):\n${JSON.stringify(books, null, 1)}\n\nRank every saved book for right now.`;
+  const { data } = await ask({ system: CHOOSE_SYSTEM, prompt, schema: CHOOSE_SCHEMA, tier: DB.getSetting('tier_verdict', 'best'), effort: 'medium' });
+  const ids = new Set(books.map((b) => b.book_id));
+  const seen = new Set();
+  const order = data.order.filter((o) => ids.has(o.book_id) && !seen.has(o.book_id) && seen.add(o.book_id))
+    .map((o) => ({ ...o, title: books.find((b) => b.book_id === o.book_id).title, author: books.find((b) => b.book_id === o.book_id).author }));
+  for (const o of order) { const e = books.find((b) => b.book_id === o.book_id).earlier_verdict; if (e) o.earlier = { verdict: e.verdict, fit: e.fit, date: e.date }; }
+  return { order, note: data.note, shelf: shelf.name, at: DB.now() };
 }

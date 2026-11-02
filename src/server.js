@@ -15,7 +15,7 @@ import { followups, recordOutcome, sayVsDo, fingerprint, reportStats, writeRepor
 import { backupDatabase, listBackups, checkHealth, health, exportAll, importAll, lanStatus, setLan, lanToken } from './ops.js';
 import { reflectProfile, importHistoryCsv } from './pipeline/reflect.js';
 import { MODELS, resolveModel } from './llm.js';
-import { chat, loadChat, verdictFor, exportSlateMarkdown, maybeAutoReflect, autoReflectStatus } from './pipeline/talk.js';
+import { chat, loadChat, verdictFor, exportSlateMarkdown, maybeAutoReflect, autoReflectStatus, chooseFromShelf } from './pipeline/talk.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const WEB = join(ROOT, 'web');
@@ -230,6 +230,7 @@ route('POST', '/api/shelves/:id/items', async (req, p) => {
   DB.addToShelf({ shelfId: Number(p.id), bookId: b.bookId, note: b.note || null, exclusiveStatus: DB.isStatusShelf(shelf) });
   return { ok: true, shelves: DB.shelvesForBook(b.bookId) };
 });
+route('POST', '/api/shelves/:id/choose', async (req, p) => { const b = await body(req); return await chooseFromShelf(Number(p.id), { now: String(b.now || '').slice(0, 500) }); });
 route('PATCH', '/api/shelf-items/:id', async (req, p) => { const b = await body(req); DB.updateShelfItem(Number(p.id), b); return { ok: true }; });
 route('DELETE', '/api/shelf-items/:id', async (req, p) => { DB.removeFromShelf(Number(p.id)); return { ok: true }; });
 

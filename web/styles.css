@@ -384,3 +384,9 @@ svg .star { animation: twinkle 3.2s ease-in-out infinite; transform-origin: cent
 .pastpick .by { font-family: var(--ui); font-size: 14px; color: var(--ink-2); margin-top: 2px; }
 .pastpick .cover.small { width: 56px; height: 84px; }
 @media (max-width: 600px) { .pastpick { grid-template-columns: 56px minmax(0, 1fr); } .pastpick > .row:last-child { grid-column: 2; } }
+
+/* "Which of these fits me right now?" on a shelf */
+.choose { margin-top: 12px; padding: 16px 0 4px; border-top: 1px solid var(--line); max-width: 760px; }
+.choose input { flex: 1; min-width: 0; }
+.chooselist { margin-top: 12px; padding-left: 1.4em; display: grid; gap: 14px; }
+.chooselist .ttl { font-family: var(--reading); font-size: 19px; font-weight: 600; }

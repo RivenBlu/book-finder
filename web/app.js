@@ -891,6 +891,7 @@ async function book(id) {
 }
 
 // ---------- shelves ----------
+const CHOOSABLE = ['Up next', 'Someday', 'Maybe'];
 async function shelves(activeId) {
   const list = await get('/api/shelves');
   const active = list.find((s) => String(s.id) === String(activeId)) || list[0];
@@ -900,6 +901,10 @@ async function shelves(activeId) {
     <div class="row between"><h1>Shelves</h1><div class="row"><button class="btn sm" id="newShelf">+ New shelf</button><button class="btn sm" id="addBook">+ Add a book</button></div></div>
     <div class="shelfnav">${list.map((s) => raw(h`<a class="btn sm ${s.id === active?.id ? 'on' : ''}" href="#shelves/${s.id}">${s.name} <span class="tabular sec">${s.count}</span></a>`))}</div>
     ${active ? raw(h`<p class="cap sec">${active.description || ''} ${active.kind === 'custom' ? raw(h`<button class="btn sm ghost" id="delShelf">Delete shelf</button>`) : ''}</p>`) : ''}
+    ${CHOOSABLE.includes(active?.name) && items.length >= 2 ? raw(h`<p class="cap" style="margin-top:6px"><a href="#" id="chooseLink">Which of these fits me right now? →</a></p>
+      <div id="choose" hidden class="choose"><label class="lbl" for="chooseNow">How are you right now? A few words, or leave it empty to use your latest check-in.</label>
+        <div class="row" style="gap:8px;flex-wrap:nowrap"><input type="text" id="chooseNow" placeholder="tired, flat, want something that grips; long weekend ahead"><button class="btn primary" id="chooseGo">Choose</button></div>
+        <div id="chooseOut"></div></div>`) : ''}
     <div id="search" hidden style="margin-top:16px"><input type="text" id="q" placeholder="Title and author, then Enter (searches Goodreads)"><div id="sres"></div></div>
     <div class="items" style="margin-top:16px">${items.length ? items.map((it) => raw(h`<div class="item" data-item="${it.id}">
         <a href="#book/${it.book_id}">${coverImg(it.cover, it.title)}</a>
@@ -917,6 +922,21 @@ async function shelves(activeId) {
   </section>`;
   document.getElementById('newShelf').onclick = async () => { const name = prompt('Shelf name'); if (!name) return; const r = await post('/api/shelves', { name }); location.hash = `shelves/${r.id}`; };
   const ds = document.getElementById('delShelf'); if (ds) ds.onclick = async () => { if (confirm(`Delete shelf "${active.name}"?`)) { await del(`/api/shelves/${active.id}`); location.hash = 'shelves'; } };
+  const cl = document.getElementById('chooseLink');
+  if (cl) {
+    const box = document.getElementById('choose'), out = document.getElementById('chooseOut'), goB = document.getElementById('chooseGo'), nowI = document.getElementById('chooseNow');
+    cl.onclick = (e) => { e.preventDefault(); box.hidden = !box.hidden; if (!box.hidden) nowI.focus(); };
+    const run = act(goB, async () => {
+      out.innerHTML = h`<p class="cap sec" style="margin-top:12px"><span class="spinner"></span> Weighing your ${items.length} books against right now… about a minute.</p>`;
+      let r; try { r = await post(`/api/shelves/${active.id}/choose`, { now: nowI.value }); } catch (e) { out.innerHTML = ''; throw e; }
+      if (!document.contains(out)) return;
+      out.innerHTML = h`${r.note ? raw(h`<p class="note" style="margin-top:14px">${r.note}</p>`) : ''}<ol class="chooselist">${r.order.map((o, i) => raw(h`<li><div class="row between" style="align-items:baseline"><a href="#book/${o.book_id}" class="ttl" style="color:inherit">${o.title}</a><span class="cap"><b>${verdictLabel(o.verdict)}</b> · <span class="tabular">${o.fit}</span>%</span></div>${o.earlier && o.earlier.verdict !== o.verdict ? raw(h`<p class="cap sec" style="margin-top:2px">Earlier verdict (${when(o.earlier.date)}): ${verdictLabel(o.earlier.verdict)}, ${o.earlier.fit}%. Today's answer explains the change.</p>`) : ''}<p style="margin-top:4px">${o.why}</p>${o.caution ? raw(h`<p class="cap sec" style="margin-top:2px">Careful: ${o.caution}</p>`) : ''}${i === 0 ? raw(h`<p style="margin-top:8px"><button class="btn sm primary" data-start="${o.book_id}">Start it: move to Reading now</button></p>`) : ''}</li>`))}</ol>`;
+      const sb = out.querySelector('[data-start]');
+      if (sb) sb.onclick = act(sb, async () => { const rn = list.find((s) => s.name === 'Reading now'); await post(`/api/shelves/${rn.id}/items`, { bookId: Number(sb.dataset.start) }); toast('Moved to Reading now. Enjoy it.'); shelves(active.id); });
+    });
+    goB.onclick = run;
+    nowI.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); run(); } };
+  }
   document.getElementById('addBook').onclick = () => { const s = document.getElementById('search'); s.hidden = !s.hidden; document.getElementById('q').focus(); };
   const q = document.getElementById('q');
   q.onkeydown = async (e) => {
