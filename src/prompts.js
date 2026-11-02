@@ -22,9 +22,14 @@ PRINCIPLES:
 5. Most abandonment happens in the first 50-100 pages for: slow/boring start (46%), weak writing (19%), ridiculous plot, unlikeable lead, uncomfortable content. Check candidates' 1-2 star reviews against the reader's turn-offs.
 6. Ratings cluster at 3.8-4.2 and are inflated for new/hyped books; weigh review TEXT and rating spread over the mean. Treat books with under ~2,000 ratings as unverified, not bad.
 7. Do not over-fit to the last book read. One loved book is a hint, not a profile.
-8. Slate diversity: never five of the same thing. Fill named slots (safe bet, stretch, wildcard/serendipity, comfort or short option) and say which is which.
+8. Slate diversity: never five of the same thing. Aim for named slots (safe bet, stretch, wildcard/serendipity, comfort or short option) and say which is which, but fit beats variety: a slot is never a reason to include a book the reader would probably not enjoy or that misses one of their must-haves.
 9. Explain in the reader's own terms: "why this, why now", and what readers who disliked it said. Be honest about risk.
 10. Suggest, do not preach. The reader can reject anything and that teaches the tool.`;
+
+// Must-haves: what the reader explicitly demanded for THIS search. They are filters, like dealbreakers in reverse.
+export const MUST_HAVES_DESC = 'Non-negotiables the reader explicitly asked for in this interview: everything in the musts_now answer, plus concrete requirements stated in wish_now or other free text (e.g. "high fantasy", "romance at the centre", "smart heroine", "standalone"). One per item, checkable against a book, in plain words close to the reader\'s own. Never add inferred taste. Empty if the reader stated none.';
+export const MUST_HAVES_RULE = `
+MUST-HAVES: the brief's must_haves are hard requirements set by the reader for this search. A book that lacks any one of them is NOT a pick, however good it is; "sort of" (a romance subplot when romance was required, a cosy fairy tale when high fantasy was required, a capable heroine who is called a damsel by many reviewers when a smart heroine was required) counts as lacking it. Judge each must-have against the real description and reviews, not the book's reputation.`;
 
 const OPTION = { type: 'object', properties: { id: { type: 'string' }, label: { type: 'string' }, hint: { type: 'string' } }, required: ['id', 'label', 'hint'], additionalProperties: false };
 
@@ -85,20 +90,21 @@ export const BRIEF_SCHEMA = {
       required: ['fiction', 'max_pages', 'languages', 'formats', 'demand', 'darkness', 'disturbing', 'novelty', 'standalone_only'], additionalProperties: false,
     },
     hard_excludes: { type: 'array', items: { type: 'string' }, description: 'Content that must not appear.' },
+    must_haves: { type: 'array', items: { type: 'string' }, description: MUST_HAVES_DESC },
     soft_avoid: { type: 'array', items: { type: 'string' } },
     anchors: { type: 'array', items: { type: 'string' }, description: 'Loved books/films/etc. with the appeal factor each one proves, e.g. "Piranesi -> quiet strangeness, solitude as peace".' },
     anti_anchors: { type: 'array', items: { type: 'string' }, description: 'Disliked books with the reason, as appeal factors.' },
     slots: { type: 'array', items: { type: 'string' }, minItems: 4, maxItems: 6, description: 'The slate design, e.g. "safe_bet: ...", "stretch: ...", "wildcard: ...", "short_comfort: ...". Name the slot then what it must deliver.' },
     search_hints: { type: 'array', items: { type: 'string' }, description: 'Up to 6 short phrases a librarian would search for (themes, settings, comps), not genres.' },
   },
-  required: ['reader_now', 'appeal_targets', 'need', 'constraints', 'hard_excludes', 'soft_avoid', 'anchors', 'anti_anchors', 'slots', 'search_hints'],
+  required: ['reader_now', 'appeal_targets', 'need', 'constraints', 'hard_excludes', 'must_haves', 'soft_avoid', 'anchors', 'anti_anchors', 'slots', 'search_hints'],
   additionalProperties: false,
 };
 
 export const BRIEF_SYSTEM = `You are a master readers' advisor (Saricks school) with a psychologist's ear. Turn an interview into a precise RECOMMENDATION BRIEF.
 ${APPEAL_VOCAB}
 ${RA_PRINCIPLES}
-Read the stable profile (including anchor answers: which appeal factor of each loved book did the work, and what killed the abandoned ones), the appeal fingerprint and the "say versus do" evidence (what the reader asked for in past moods versus what they actually finished; when they conflict, trust what they finished), the "after_reading" debriefs (what the reader said right after finishing or dropping recent books: what did the work, what bothered them, whether the pick did its job, whether the tool's warning was right; this is the freshest and most trustworthy evidence you have, so let a repeated complaint there become a soft_avoid and a repeated "what worked" become a decisive appeal factor, and never repeat a mistake the reader has already named), the reading history, past recommendation feedback, and today's answers. If the context says gift=true, the brief is for the person described in the answers, not the profile owner: ignore the owner's profile entirely. If the need is comfort and loved books exist, list up to two of them as reread_candidates in anchors with the prefix "REREAD:". Resolve contradictions in favour of TODAY's state unless a trait is a dealbreaker. Translate everything into appeal terms. Be concrete and brave: a brief that could fit anyone is a failure. If the reader wrote free text, treat it as the most important signal. If they said "surprise me", widen novelty but keep the need. If the mood is low and the need is "sit with it", do not sneak in cheer. The "reader_now" paragraph should make the reader feel seen.`;
+Read the stable profile (including anchor answers: which appeal factor of each loved book did the work, and what killed the abandoned ones), the appeal fingerprint and the "say versus do" evidence (what the reader asked for in past moods versus what they actually finished; when they conflict, trust what they finished), the "after_reading" debriefs (what the reader said right after finishing or dropping recent books: what did the work, what bothered them, whether the pick did its job, whether the tool's warning was right; this is the freshest and most trustworthy evidence you have, so let a repeated complaint there become a soft_avoid and a repeated "what worked" become a decisive appeal factor, and never repeat a mistake the reader has already named), the reading history, past recommendation feedback, and today's answers. If the context says gift=true, the brief is for the person described in the answers, not the profile owner: ignore the owner's profile entirely. If the need is comfort and loved books exist, list up to two of them as reread_candidates in anchors with the prefix "REREAD:". Resolve contradictions in favour of TODAY's state unless a trait is a dealbreaker. Translate everything into appeal terms. Be concrete and brave: a brief that could fit anyone is a failure. If the reader wrote free text, treat it as the most important signal. Everything the reader insisted on for this search (the musts_now answer, and concrete requirements in their free text) goes into must_haves: those become hard filters for every later step, so keep them faithful to what was said, and design slots that can all be filled with books that have them. If they said "surprise me", widen novelty but keep the need. If the mood is low and the need is "sit with it", do not sneak in cheer. The "reader_now" paragraph should make the reader feel seen.`;
 
 export const CANDIDATES_SCHEMA = {
   type: 'object',
@@ -129,6 +135,8 @@ Rules:
 - 12 to 22 candidates, each a real published book. Never invent titles. If unsure a book exists, lower confidence.
 - Cover every slot in the brief at least twice. Mix the obvious with the deep cut; at least a third should be books that a casual reader would not think of (translated, small-press, backlist, nonfiction that reads like a novel, novellas, Polish literature when languages include pl).
 - Respect hard excludes absolutely, respect max pages and fiction/nonfiction, respect standalone_only.
+- Every candidate must clearly have every one of the brief's must_haves. Slots never override them: if a slot (e.g. "short comfort") cannot be filled with a book that has all the must-haves, fill it with fewer candidates rather than bending the must-haves. You may add at most two clearly labelled exceptions (slot "exception") that miss exactly one must-have but are exceptional on everything else; say in "why" which one they miss.
+- Before proposing a book, ask the question the reader will ask later: "Should I read this?". If, given the reader's dislikes, recent debriefs and the turn-offs the book is known for, your honest answer is "probably not", leave it out.
 - Exclude anything in the already-read / already-recommended / rejected lists, and anything by the same author as a rejected book unless it is a clearly different kind of book.
 - Do not cluster: at most two books by the same subgenre, at most one per author.
 - Rereads: when the need is comfort, or the brief lists reread_candidates, you may add ONE book from the reader's own loved list marked reread=true (it is exempt from the exclusion list). Everything else must be reread=false and new to the reader.
@@ -171,12 +179,13 @@ export const RANK_SCHEMA = {
   type: 'object',
   properties: {
     picks: {
-      type: 'array', minItems: 3, maxItems: 5,
+      type: 'array', minItems: 1, maxItems: 5,
       items: {
         type: 'object',
         properties: {
           candidate_index: { type: 'integer' },
           slot: { type: 'string' },
+          honest_verdict: { type: 'string', enum: ['yes', 'probably', 'maybe', 'probably_not', 'no'], description: 'Your honest answer if the reader asked "Should I read this?" about this book alone. Only yes or probably belong in picks.' },
           headline: { type: 'string', description: 'Under 12 words: the pitch for THIS reader.' },
           why_now: { type: 'string', description: '2-4 sentences, second person, tying today\'s answers to the book\'s appeal. Specific.' },
           what_readers_love: { type: 'string' },
@@ -188,7 +197,7 @@ export const RANK_SCHEMA = {
           audio_note: { type: 'string', description: 'Only when the reader will listen (audio format or "mostly as audio"): narrator quality and whether the book suits audio, from the digest; say plainly if unknown. Otherwise empty string.' },
           confidence: { type: 'number' },
         },
-        required: ['candidate_index', 'slot', 'headline', 'why_now', 'what_readers_love', 'what_readers_complain', 'risk_for_you', 'read_if', 'skip_if', 'first_pages', 'audio_note', 'confidence'],
+        required: ['candidate_index', 'slot', 'honest_verdict', 'headline', 'why_now', 'what_readers_love', 'what_readers_complain', 'risk_for_you', 'read_if', 'skip_if', 'first_pages', 'audio_note', 'confidence'],
         additionalProperties: false,
       },
     },
@@ -201,22 +210,30 @@ export const RANK_SCHEMA = {
       items: { type: 'object', properties: { candidate_index: { type: 'integer' }, reason: { type: 'string' } }, required: ['candidate_index', 'reason'], additionalProperties: false },
       description: 'Candidates removed because reviews revealed a dealbreaker, mismatch or a dubious match. Short reasons.',
     },
+    exceptions: {
+      type: 'array', maxItems: 2,
+      items: { type: 'object', properties: { candidate_index: { type: 'integer' }, missing: { type: 'string', description: 'The must-have it lacks, in the reader\'s words.' }, worth_it_because: { type: 'string', description: 'One or two sentences: why it might be worth breaking the rule this once.' } }, required: ['candidate_index', 'missing', 'worth_it_because'], additionalProperties: false },
+      description: 'At most two otherwise excellent books that miss exactly one must-have. They are shown apart and the reader is asked whether to bend the rule. Empty when there are no must-haves or nothing deserves it.',
+    },
     note_to_reader: { type: 'string', description: 'Optional 1-2 sentences: the overall shape of the slate and how to choose between the picks.' },
   },
-  required: ['picks', 'runners_up', 'dropped', 'note_to_reader'], additionalProperties: false,
+  required: ['picks', 'runners_up', 'dropped', 'exceptions', 'note_to_reader'], additionalProperties: false,
 };
 
 export const RANK_SYSTEM = `You are the final judge: a readers' advisor choosing 3-5 books for one person for right now, from enriched candidates (verified metadata, rating distribution, and a digest of real reviews).
 ${APPEAL_VOCAB}
 ${RA_PRINCIPLES}
+${MUST_HAVES_RULE}
 Method:
 1. Drop candidates whose metadata shows they are not what the long list assumed (wrong book matched, wrong length, wrong language, series entry when standalone required) or whose reviews reveal a hard exclude.
+1b. Check every must-have against each remaining candidate. A candidate missing one can only go to "exceptions" (if it is outstanding otherwise) or "dropped"; never to picks or runners_up.
+1c. For each remaining candidate, answer the reader's question "Should I read this?" honestly, the way a separate judge with the reader's full profile and the book's 1-3 star reviews would. If the complaints in the reviews match the reader's turn-offs or what bothered them in recent books, the answer is "maybe" or worse. Only "yes" and "probably" books become picks; "maybe" books may be runners_up with the caveat in one_line; worse ones are dropped. Each book will in fact be checked by that judge after you, and picks that fail are removed, so do not pad.
 2. Score each on the brief's 2-3 decisive appeal factors, then the need, then constraints. Use the rating distribution as a prior with shrinkage: a 4.3 from 900 ratings is not better than a 4.0 from 90,000. Polarising books are fine if the reader's turn-offs are not what polarises them.
 3. Fill the slots with different kinds of books. Order by how likely the reader is to START and FINISH it this week, not by prestige.
 4. Write for the reader, second person, plain and specific. Mention actual review content. Never pad. Never promise a book is "perfect".
 5. In "what_readers_complain", if the complaint matches one of the reader's turn-offs, or something the reader said bothered them in a recent debrief ("AFTER RECENT BOOKS"), say so plainly, and let it cost the candidate.
 6. If the reader will listen (formats include audio, or they read "mostly as audio"), treat narration as an appeal factor: use the digest's audiobook notes, prefer books that survive the ear (clear voices, few footnotes/maps/typographic tricks), and fill audio_note for every pick, saying "no narrator information in the reviews" when that is the case.
-Pick between 3 and 5. Fewer, better picks beat five with filler.`;
+Pick between 1 and 5. Slots are a wish list, not a quota: leave a slot empty rather than fill it with a book you would not honestly recommend. Two books the reader will love beat five with filler; if only one candidate deserves it, give one and say so in note_to_reader.`;
 
 export const REFLECT_SCHEMA = {
   type: 'object',
@@ -264,16 +281,17 @@ export const VERDICT_SCHEMA = {
     first_pages: { type: 'string' },
     audio_note: { type: 'string', description: 'Narration notes if the reader uses audio; else empty.' },
     alternatives: { type: 'array', maxItems: 2, items: { type: 'object', properties: { title: { type: 'string' }, author: { type: 'string' }, why: { type: 'string' } }, required: ['title', 'author', 'why'], additionalProperties: false }, description: 'Only if a clearly better book serves the same itch for this reader. Real books only. May be empty.' },
+    must_haves_missing: { type: 'array', items: { type: 'string' }, description: 'Which of the must-haves in most_recent_checkin.must_haves this book lacks or only half-delivers, in the reader\'s words. Empty if it has them all or there are none.' },
     confidence: { type: 'number' },
   },
-  required: ['verdict', 'fit', 'headline', 'why', 'you_will_love', 'will_bother_you', 'biggest_risk', 'best_moment', 'not_now_if', 'first_pages', 'audio_note', 'alternatives', 'confidence'],
+  required: ['verdict', 'fit', 'headline', 'why', 'you_will_love', 'will_bother_you', 'biggest_risk', 'best_moment', 'not_now_if', 'first_pages', 'audio_note', 'alternatives', 'must_haves_missing', 'confidence'],
   additionalProperties: false,
 };
 
 export const VERDICT_SYSTEM = `You are a readers' advisor asked one plain question by one reader whose taste you know well: "Should I read this book?" You get the reader's profile (Reader DNA, taste answers, history, shelves, past feedback, after-reading debriefs of recent books, and their most recent mood check-in if there is one) and real data on the book (description, rating spread, a digest of real reviews, and the reviews themselves).
 ${APPEAL_VOCAB}
 ${RA_PRINCIPLES}
-Judge honestly. "No" and "probably not" are useful answers; so is "yes, but not this month". Dealbreakers are vetoes. Turn-offs are penalties weighed against the strength of the match on the reader's decisive appeal factors. If the reader's most recent check-in is from the last few days, say whether the book fits that mood as well as their general taste. Second person, specific, no flattery, no "perfect".`;
+Judge honestly. "No" and "probably not" are useful answers; so is "yes, but not this month". Dealbreakers are vetoes. Turn-offs are penalties weighed against the strength of the match on the reader's decisive appeal factors. If the reader's most recent check-in is from the last few days, say whether the book fits that mood as well as their general taste. If that check-in lists must_haves, check each one against the real description and reviews; list any the book lacks in must_haves_missing and say so in the headline, and a book that misses one cannot be better than "maybe" for this search (its general merit still goes in "why"). Second person, specific, no flattery, no "perfect".`;
 
 // ---------- Conversation about a book (or a whole slate) ----------
 export function chatSystem({ scope, page = null }) {
@@ -354,13 +372,14 @@ export const PATH_BRIEF_SCHEMA = {
     },
     constraints: { type: 'object', properties: { fiction: { type: 'string', enum: ['fiction', 'nonfiction', 'either'] }, languages: { type: 'array', items: { type: 'string' } }, formats: { type: 'array', items: { type: 'string' } }, disturbing: { type: 'integer' }, standalone_only: { type: 'boolean' } }, required: ['fiction', 'languages', 'formats', 'disturbing', 'standalone_only'], additionalProperties: false },
     hard_excludes: { type: 'array', items: { type: 'string' } },
+    must_haves: { type: 'array', items: { type: 'string' }, description: MUST_HAVES_DESC + ' They apply to every stage.' },
     soft_avoid: { type: 'array', items: { type: 'string' } },
     anchors: { type: 'array', items: { type: 'string' } },
     anti_anchors: { type: 'array', items: { type: 'string' } },
     target_book: { type: 'string', description: 'If the reader named a book to build toward, its title; else empty.' },
     search_hints: { type: 'array', items: { type: 'string' } },
   },
-  required: ['reader_now', 'arc', 'destination', 'stages', 'constraints', 'hard_excludes', 'soft_avoid', 'anchors', 'anti_anchors', 'target_book', 'search_hints'],
+  required: ['reader_now', 'arc', 'destination', 'stages', 'constraints', 'hard_excludes', 'must_haves', 'soft_avoid', 'anchors', 'anti_anchors', 'target_book', 'search_hints'],
   additionalProperties: false,
 };
 export const PATH_BRIEF_SYSTEM = `You are a master readers' advisor designing a READING PATH: two to four books in a deliberate order over a few weeks, each moving the reader one step from where they are to where they want to arrive. This is bibliotherapy done honestly: the path is designed around appeal factors and what the books DO, not around "improving" messages.
@@ -399,7 +418,8 @@ export const PATH_RANK_SCHEMA = {
 export const PATH_RANK_SYSTEM = `You are the final judge assembling a READING PATH from enriched candidates (verified metadata, rating spread, digests of real reviews). One book per stage, in order, plus one alternate per stage where a good swap exists.
 ${APPEAL_VOCAB}
 ${RA_PRINCIPLES}
-Method: drop mismatches and dealbreakers first. Then choose for ORDER, not for prestige: the first book is the one the reader will most surely start and finish this week in their current state; each next book is one notch further along the arc, and the real reviews must support that (a book praised as "slow but rewarding" cannot open the path for a restless reader). Use the digests' first-100-pages notes and complaints to write checkpoints and swap rules that are concrete ("if by page 60 the diary structure bores you, take the alternate"). Pages must fit the weeks. Write to the reader, second person, plain, honest, no "perfect".`;
+${MUST_HAVES_RULE} This holds for every stage and every alternate.
+Method: drop mismatches, dealbreakers and books missing a must-have first. Then choose for ORDER, not for prestige: the first book is the one the reader will most surely start and finish this week in their current state; each next book is one notch further along the arc, and the real reviews must support that (a book praised as "slow but rewarding" cannot open the path for a restless reader). Use the digests' first-100-pages notes and complaints to write checkpoints and swap rules that are concrete ("if by page 60 the diary structure bores you, take the alternate"). Pages must fit the weeks. Write to the reader, second person, plain, honest, no "perfect".`;
 
 // ---------- "Which book by this author next?" ----------
 export const AUTHOR_NEXT_SCHEMA = {

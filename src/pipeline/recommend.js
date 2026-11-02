@@ -8,6 +8,7 @@ import { searchHardcover } from '../sources/hardcover.js';
 import { getSession, updateSession, getSetting, upsertBook, getBook, getBookByGoodreadsId, findBookByTitle, setReviewDigest, addRecommendation, digestStale, db } from '../db.js';
 import { BRIEF_SCHEMA, BRIEF_SYSTEM, CANDIDATES_SCHEMA, CANDIDATES_SYSTEM, DIGEST_SCHEMA, DIGEST_SYSTEM, RANK_SCHEMA, RANK_SYSTEM, PATH_BRIEF_SCHEMA, PATH_BRIEF_SYSTEM, PATH_RANK_SCHEMA, PATH_RANK_SYSTEM } from '../prompts.js';
 import { fullContext, excludeList, answersDigest } from './context.js';
+import { verdictFor } from './talk.js';
 
 const running = new Map(); // sessionId -> { listeners:Set, log:[] }
 
@@ -111,16 +112,23 @@ export async function runRecommendation(sessionId) {
       updateSession(sessionId, { status: 'recommended', ended_at: new Date().toISOString(), brief: { ...brief, note_to_reader: ranked.arc_note, dropped: (ranked.dropped || []).map((d) => ({ title: found[d.candidate_index]?.book?.title, reason: d.reason })) } });
     } else {
       const ranked = (await ask({ system: RANK_SYSTEM, schema: RANK_SCHEMA, tier: getSetting('tier_rank', 'best'), effort: 'high', prompt: `${header}\n\nChoose the slate.` })).data;
+      // 6. Second opinion: the same "Should I read this?" judge the book page uses checks every book on the slate,
+      // so the slate and the verdicts can no longer contradict each other. Verdicts are stored and shown on the book page.
+      const slate = gift || getSetting('verify_picks', 'true') !== 'true' ? ranked : await secondOpinion(ranked, found, sessionId, log);
       let rank = 1;
-      for (const p of ranked.picks) {
+      for (const p of slate.picks) {
         const x = found[p.candidate_index]; if (!x) continue;
         addRecommendation({ sessionId, bookId: x.book.id, rank: rank++, slot: p.slot, fit: { ...p, kind: 'pick', reread: !!x.candidate.reread } });
       }
-      for (const r of ranked.runners_up || []) {
-        const x = found[r.candidate_index]; if (!x) continue;
-        addRecommendation({ sessionId, bookId: x.book.id, rank: rank++, slot: 'runner_up', fit: { kind: 'runner_up', one_line: r.one_line } });
+      for (const e of slate.exceptions || []) {
+        const x = found[e.candidate_index]; if (!x) continue;
+        addRecommendation({ sessionId, bookId: x.book.id, rank: 50 + rank++, slot: 'exception', fit: { kind: 'exception', missing: e.missing, worth_it_because: e.worth_it_because, check: e.check || null } });
       }
-      updateSession(sessionId, { status: 'recommended', ended_at: new Date().toISOString(), brief: { ...brief, note_to_reader: ranked.note_to_reader, dropped: (ranked.dropped || []).map((d) => ({ title: found[d.candidate_index]?.book?.title, reason: d.reason })) } });
+      for (const r of slate.runners_up || []) {
+        const x = found[r.candidate_index]; if (!x) continue;
+        addRecommendation({ sessionId, bookId: x.book.id, rank: 100 + rank++, slot: 'runner_up', fit: { kind: 'runner_up', one_line: r.one_line, check: r.check || null } });
+      }
+      updateSession(sessionId, { status: 'recommended', ended_at: new Date().toISOString(), brief: { ...brief, note_to_reader: slate.note_to_reader, dropped: (slate.dropped || []).map((d) => ({ title: found[d.candidate_index]?.book?.title, reason: d.reason })) } });
     }
     log('done', 'Done');
   } catch (e) {
@@ -130,6 +138,74 @@ export async function runRecommendation(sessionId) {
   } finally {
     setTimeout(() => running.delete(sessionId), 60_000);
   }
+}
+
+// ---------- second opinion ----------
+const GOOD = ['yes', 'probably'];
+const VLABEL = { yes: 'yes', probably: 'probably', maybe: 'maybe', probably_not: 'probably not', no: 'no' };
+// Pure: reshapes the ranked slate given one verdict per candidate index (Map). Exported for tests.
+export function applySecondOpinion(ranked, verdicts, found) {
+  const title = (i) => found[i]?.book?.title || '?';
+  const check = (v) => (v ? { verdict: v.verdict, fit: v.fit, headline: v.headline } : null);
+  const missing = (v) => (v?.must_haves_missing || []).filter(Boolean);
+  const picks = [], runners = [], exceptions = [], promotable = [];
+  const dropped = [...(ranked.dropped || [])];
+  const seen = new Set();
+  const route = (i, v, asPick) => {
+    if (seen.has(i)) return; seen.add(i);
+    if (!v) { if (asPick) picks.push(asPick); else runners.push({ candidate_index: i, one_line: ranked.runners_up.find((r) => r.candidate_index === i)?.one_line || '' }); return; }
+    const miss = missing(v);
+    if (miss.length) {
+      if (v.fit >= 60) exceptions.push({ candidate_index: i, missing: miss.join('; '), worth_it_because: v.headline, check: check(v) });
+      else dropped.push({ candidate_index: i, reason: `Misses your must-have (${miss.join('; ')}).` });
+    } else if (GOOD.includes(v.verdict)) {
+      if (asPick) picks.push({ ...asPick, check: check(v) });
+      else promotable.push({ i, v });
+    } else if (v.verdict === 'maybe') {
+      runners.push({ candidate_index: i, one_line: `Borderline on a second look: ${v.headline}`, check: check(v) });
+    } else {
+      dropped.push({ candidate_index: i, reason: `Failed the second look (${VLABEL[v.verdict]}, ${v.fit}%): ${v.headline}` });
+    }
+  };
+  for (const p of ranked.picks) route(p.candidate_index, verdicts.get(p.candidate_index), p);
+  for (const r of ranked.runners_up || []) route(r.candidate_index, verdicts.get(r.candidate_index), null);
+  for (const e of ranked.exceptions || []) {
+    const i = e.candidate_index; if (seen.has(i)) continue; seen.add(i);
+    const v = verdicts.get(i);
+    if (!v || v.fit >= 55) exceptions.push({ ...e, check: check(v) });
+    else dropped.push({ candidate_index: i, reason: `Misses your must-have (${e.missing}) and the second look was ${VLABEL[v.verdict]}.` });
+  }
+  // Runners-up the judge liked fill the slate back up to three; they are written from the verdict.
+  promotable.sort((a, b) => b.v.fit - a.v.fit);
+  for (const { i, v } of promotable) {
+    if (picks.length < 3) {
+      picks.push({ candidate_index: i, slot: 'second look', honest_verdict: v.verdict, headline: v.headline, why_now: v.why, what_readers_love: v.you_will_love, what_readers_complain: v.will_bother_you, risk_for_you: v.biggest_risk, read_if: v.best_moment, skip_if: v.not_now_if, first_pages: v.first_pages, audio_note: v.audio_note || '', confidence: v.confidence, check: check(v), promoted: true });
+    } else runners.push({ candidate_index: i, one_line: `Also a "${VLABEL[v.verdict]}" (${v.fit}%): ${v.headline}`, check: check(v) });
+  }
+  const removed = ranked.picks.filter((p) => !picks.some((q) => q.candidate_index === p.candidate_index)).map((p) => title(p.candidate_index));
+  // The ranker's note talks about its own picks; once any of them is removed it would contradict the page, so it is replaced.
+  let note = removed.length ? `After a second, stricter look I took out ${removed.join(', ')}; the reasons are under "The brief".` : ranked.note_to_reader || '';
+  if (!picks.length) {
+    const tally = {};
+    for (const [, v] of verdicts) for (const m of missing(v)) { const k = m.split(' (')[0].trim(); tally[k] = (tally[k] || 0) + 1; }
+    const worst = Object.entries(tally).sort((a, b) => b[1] - a[1])[0];
+    note += ` Nothing passed the second look cleanly, so there are no picks this time.${worst ? ` The must-have that ruled out the most books was "${worst[0]}" (${worst[1]} of ${verdicts.size}).` : ''} The closest calls are below; "Same answers, different picks" tries a fresh long list.`;
+  }
+  return { ...ranked, picks, runners_up: runners.slice(0, 5), exceptions: exceptions.slice(0, 3), dropped, note_to_reader: note };
+}
+
+async function secondOpinion(ranked, found, sessionId, log) {
+  const idx = [...new Set([...ranked.picks, ...(ranked.runners_up || []), ...(ranked.exceptions || [])].map((x) => x.candidate_index))].filter((i) => found[i]);
+  log('verify', `Second opinion: asking "Should I read this?" about ${idx.length} books...`);
+  const verdicts = new Map();
+  await mapLimit(idx, 4, async (i) => {
+    try {
+      const v = await verdictFor(found[i].book.id, { sessionId });
+      verdicts.set(i, v);
+      log('verify', `${found[i].book.title}: ${VLABEL[v.verdict]} (${v.fit}%)${v.must_haves_missing?.length ? ', misses a must-have' : ''}`);
+    } catch (e) { log('verify', `Could not check ${found[i].book.title}: ${e.message}`); }
+  });
+  return applySecondOpinion(ranked, verdicts, found);
 }
 
 // ---------- enrichment ----------

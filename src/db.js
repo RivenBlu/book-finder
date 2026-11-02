@@ -335,7 +335,7 @@ export function setRecommendationFeedback(id, feedback, note = null, outcome = n
 export function pendingFollowups(excludeSessionId = null, limit = 6) {
   return db.prepare(`SELECT r.id, r.session_id, r.book_id, r.slot, r.fit, r.created_at, b.title, b.author, b.cover, b.pages, b.year, b.url, b.description, b.review_digest, s.mode
                      FROM recommendations r JOIN books b ON b.id = r.book_id JOIN sessions s ON s.id = r.session_id
-                     WHERE r.feedback IS NULL AND r.slot != 'runner_up' AND s.mode != 'gift' AND r.session_id != ? AND r.created_at < ?
+                     WHERE r.feedback IS NULL AND r.slot NOT IN ('runner_up', 'exception') AND s.mode != 'gift' AND r.session_id != ? AND r.created_at < ?
                      ORDER BY r.id DESC LIMIT ?`).all(excludeSessionId ?? -1, new Date(Date.now() - 36e5).toISOString(), limit)
     .map((r) => ({ ...r, fit: P(r.fit), description: (r.description || '').slice(0, 600), review_digest: compactDigest(P(r.review_digest)) }));
 }
@@ -360,7 +360,7 @@ export function outcomeRows() {
   return db.prepare(`SELECT r.id, r.session_id, r.book_id, r.slot, r.feedback, r.feedback_note, r.outcome, r.fit, r.created_at, s.mode, s.started_at,
                             b.title, b.author, b.pages, b.year, b.review_digest
                      FROM recommendations r JOIN books b ON b.id = r.book_id JOIN sessions s ON s.id = r.session_id
-                     WHERE r.slot != 'runner_up' ORDER BY r.id`).all()
+                     WHERE r.slot NOT IN ('runner_up', 'exception') ORDER BY r.id`).all()
     .map((r) => ({ ...r, fit: P(r.fit), outcome: P(r.outcome), review_digest: P(r.review_digest) }));
 }
 export function pastRecommendations(limit = 60) {
@@ -402,7 +402,7 @@ export function removeFromShelf(id) { db.prepare('DELETE FROM shelf_items WHERE 
 // Books on "Reading now", with the pick that brought them when there was one (for the debrief entry on the home page).
 export function readingNow() {
   return db.prepare(`SELECT i.book_id, i.page, i.added_at, b.title, b.author, b.cover, b.pages,
-                            (SELECT r.id FROM recommendations r WHERE r.book_id = i.book_id AND r.slot != 'runner_up' ORDER BY r.id DESC LIMIT 1) AS rec_id
+                            (SELECT r.id FROM recommendations r WHERE r.book_id = i.book_id AND r.slot NOT IN ('runner_up', 'exception') ORDER BY r.id DESC LIMIT 1) AS rec_id
                      FROM shelf_items i JOIN shelves s ON s.id = i.shelf_id JOIN books b ON b.id = i.book_id WHERE s.name = 'Reading now' ORDER BY i.added_at DESC`).all();
 }
 export function shelvesForBook(bookId) {

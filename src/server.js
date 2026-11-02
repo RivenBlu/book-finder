@@ -235,7 +235,7 @@ route('GET', '/api/books/search', async (req) => lookupBook(new URL(req.url, 'ht
 route('POST', '/api/books/import', async (req) => { const b = await body(req); const book = await importGoodreadsBook(String(b.goodreadsId)); return withShelves(book); });
 route('GET', '/api/books/:id', async (req, p) => {
   const b = DB.getBook(Number(p.id)); if (!b) throw httpError(404, 'no such book');
-  const rec = DB.db.prepare("SELECT id, session_id, feedback FROM recommendations r WHERE book_id = ? AND slot != 'runner_up' ORDER BY id DESC LIMIT 1").get(b.id) || null;
+  const rec = DB.db.prepare("SELECT id, session_id, feedback FROM recommendations r WHERE book_id = ? AND slot NOT IN ('runner_up', 'exception') ORDER BY id DESC LIMIT 1").get(b.id) || null;
   return { ...withShelves(b), progress: DB.shelfItemFor(b.id, 'Reading now')?.page || null, notes: DB.listNotes({ bookId: b.id }), debrief: DB.latestDebrief(b.id), rec };
 });
 route('POST', '/api/books/:id/digest', async (req, p) => { const b = DB.getBook(Number(p.id)); if (!b) throw httpError(404); return await digestBook(b); });

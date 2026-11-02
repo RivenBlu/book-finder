@@ -90,14 +90,17 @@ export async function chat({ bookId, sessionId, message, page = null, onEvent })
 }
 
 // ---------- verdict ----------
-export async function verdictFor(bookId, { onEvent } = {}) {
+// sessionId: judge against that interview (used by the slate's second opinion); otherwise the latest check-in of the last week.
+export async function verdictFor(bookId, { onEvent, sessionId = null } = {}) {
   let book = DB.getBook(bookId);
   if (!book) throw new Error('no such book');
   if (!book.review_digest) { onEvent?.({ step: 'digest', msg: 'Reading the real reviews...' }); await digestBook(book); book = DB.getBook(bookId); }
   onEvent?.({ step: 'verdict', msg: 'Judging it against your profile...' });
   const ctx = fullContext(null);
-  const last = DB.listSessions(5).find((s) => s.mode !== 'onboarding' && s.status !== 'closed');
-  const recentCheckin = last && Date.now() - Date.parse(last.started_at) < 7 * 864e5 ? { date: last.started_at.slice(0, 10), answers: answersDigest(last.id).filter((a) => a.layer !== 'onboarding') } : null;
+  const last = sessionId ? DB.getSession(sessionId) : DB.listSessions(5).find((s) => !['onboarding', 'gift'].includes(s.mode) && s.status !== 'closed');
+  const recentCheckin = last && (sessionId || Date.now() - Date.parse(last.started_at) < 7 * 864e5)
+    ? { date: last.started_at.slice(0, 10), answers: answersDigest(last.id).filter((a) => a.layer !== 'onboarding'), must_haves: last.brief?.must_haves || [] }
+    : null;
   const prompt = `READER (JSON):\n${JSON.stringify({ ...ctx, recent_moods: DB.moodLog(6), most_recent_checkin: recentCheckin }, null, 1)}\n\nBOOK (JSON):\n${JSON.stringify(bookMaterial(book, { reviews: 24 }), null, 1)}\n\nShould this reader read this book?`;
   const { data } = await ask({ system: VERDICT_SYSTEM, prompt, schema: VERDICT_SCHEMA, tier: DB.getSetting('tier_verdict', 'best'), effort: 'high' });
   DB.addVerdict(bookId, data);
@@ -127,6 +130,8 @@ export function exportSlateMarkdown(sessionId) {
     if (r.url) L.push(`- ${r.url}`);
     L.push('');
   });
+  const exceptions = recs.filter((r) => r.fit?.kind === 'exception');
+  if (exceptions.length) { L.push('## Worth breaking a must-have?', ''); for (const r of exceptions) L.push(`- **${r.title}** (${r.author}): misses "${r.fit.missing}". ${r.fit.worth_it_because}`); L.push(''); }
   if (runners.length) { L.push('## Also considered', ''); for (const r of runners) L.push(`- **${r.title}** (${r.author}): ${r.fit.one_line}`); L.push(''); }
   if (b.dropped?.length) { L.push('## Dropped after reading reviews', ''); for (const d of b.dropped) L.push(`- ${d.title}: ${d.reason}`); L.push(''); }
   L.push('---', 'Made with Book Finder from real Goodreads reviews.');

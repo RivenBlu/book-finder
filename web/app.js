@@ -344,19 +344,19 @@ function outcomeChip(r) {
 async function past() {
   const list = await get('/api/past');
   const MODE = { quick: 'quick check-in', path: 'reading path', gift: 'gift for someone else', full: 'full interview' };
-  const total = list.reduce((a, s) => a + s.picks.filter((p) => p.fit?.kind !== 'runner_up').length, 0);
-  const untold = list.reduce((a, s) => a + s.picks.filter((p) => p.fit?.kind !== 'runner_up' && !p.feedback && s.mode !== 'gift').length, 0);
+  const total = list.reduce((a, s) => a + s.picks.filter((p) => !['runner_up', 'exception'].includes(p.fit?.kind)).length, 0);
+  const untold = list.reduce((a, s) => a + s.picks.filter((p) => !['runner_up', 'exception'].includes(p.fit?.kind) && !p.feedback && s.mode !== 'gift').length, 0);
   app.innerHTML = h`<section class="section" style="padding-top:8px"><div class="row between"><h1>Past picks</h1>${untold ? raw(h`<a class="btn sm primary" href="#followups">Tell me about the ${untold} without an outcome</a>`) : ''}</div>
     <p class="sec" style="margin-top:12px;max-width:65ch">Every report the tool has written, newest first, and what became of each book. ${total ? `${total} ${total === 1 ? 'pick' : 'picks'} so far.` : ''} Open a report to reread it; use "What happened?" on any book to record, rate, review or correct it. Everything you say here feeds the next recommendation.</p></section>
   ${list.length ? list.map((s) => raw(h`<section class="section pastsess">
     <div class="row between" style="align-items:flex-start"><div><div class="eyebrow">${when(s.started_at)} · ${MODE[s.mode] || s.mode}${s.status === 'researching' ? ' · still researching' : ''}</div>${s.reader_now ? raw(h`<p class="readernow" style="margin-top:10px;font-size:18px;max-width:65ch">${s.reader_now}</p>`) : ''}</div><div class="row noprint"><a class="btn sm" href="#results/${s.id}">Open the report</a><button class="btn sm ghost" data-del="${s.id}" title="Delete this report">✕</button></div></div>
-    <div class="pastpicks">${s.picks.filter((p) => p.fit?.kind !== 'runner_up').map((p) => raw(h`<div class="pastpick">
+    <div class="pastpicks">${s.picks.filter((p) => !['runner_up', 'exception'].includes(p.fit?.kind)).map((p) => raw(h`<div class="pastpick">
       <a href="#book/${p.book_id}">${coverImg(p.cover, p.title, 'cover small')}</a>
       <div><div class="ttl"><a href="#book/${p.book_id}" style="color:inherit">${p.title}</a></div><div class="by">${p.author || ''}${p.year ? ` · ${p.year}` : ''}${p.pages ? ` · ${p.pages} pages` : ''}${p.slot ? ` · ${p.slot.replace(/_/g, ' ')}` : ''}</div>${p.fit?.headline ? raw(h`<div class="cap sec" style="margin-top:4px"><i>${p.fit.headline}</i></div>`) : ''}
         <div class="row" style="margin-top:8px;gap:8px">${outcomeChip(p)}${p.feedback_note ? raw(h`<span class="cap sec">${p.feedback_note.slice(0, 140)}</span>`) : ''}</div></div>
       <div class="row" style="align-self:center">${s.mode === 'gift' ? '' : raw(h`<button class="btn sm" data-happened="${p.id}" data-book="${p.book_id}">${p.feedback ? 'Change' : 'What happened?'}</button>`)}${p.debrief_id ? raw(h`<a class="btn sm ghost" href="#book/${p.book_id}">Review</a>`) : ''}</div>
     </div>`))}</div>
-    ${s.picks.some((p) => p.fit?.kind === 'runner_up') ? raw(h`<details><summary>Also considered (${s.picks.filter((p) => p.fit?.kind === 'runner_up').length})</summary><div class="row" style="gap:8px;margin-top:8px">${s.picks.filter((p) => p.fit?.kind === 'runner_up').map((p) => raw(h`<a class="chip" href="#book/${p.book_id}">${p.title}</a>`))}</div></details>`) : ''}
+    ${s.picks.some((p) => ['runner_up', 'exception'].includes(p.fit?.kind)) ? raw(h`<details><summary>Also considered (${s.picks.filter((p) => ['runner_up', 'exception'].includes(p.fit?.kind)).length})</summary><div class="row" style="gap:8px;margin-top:8px">${s.picks.filter((p) => ['runner_up', 'exception'].includes(p.fit?.kind)).map((p) => raw(h`<a class="chip" href="#book/${p.book_id}">${p.title}</a>`))}</div></details>`) : ''}
   </section>`)) : raw(h`<section class="section"><div class="empty">${raw(STACK)}<div class="big">No reports yet</div><div>Run an interview and the picks land here, with what became of each.</div><a class="btn primary" href="#home">Find a book</a></div></section>`)}`;
   app.querySelectorAll('[data-happened]').forEach((b) => b.onclick = () => goDebrief(b.dataset.book, b.dataset.happened, 'ask'));
   app.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => { if (!confirm('Delete this report and its picks? The books stay on your shelves.')) return; await del(`/api/sessions/${b.dataset.del}`); past(); });
@@ -463,7 +463,7 @@ async function renderSummary(id) {
 }
 
 // ---------- the five-minute job ----------
-const STEPS = [['brief', 'Reading your answers', 35], ['candidates', 'Thinking of candidates', 100], ['enrich', 'Fetching real descriptions, ratings and reviews', 25], ['digest', 'Reading the reviews, book by book', 75], ['rank', 'Choosing the slate', 95]];
+const STEPS = [['brief', 'Reading your answers', 35], ['candidates', 'Thinking of candidates', 100], ['enrich', 'Fetching real descriptions, ratings and reviews', 25], ['digest', 'Reading the reviews, book by book', 75], ['rank', 'Choosing the slate', 95], ['verify', 'A second, stricter look at every pick', 70]];
 const WAIT_LINES = ['Librarians call this a readers\' advisory interview. It usually takes a desk and a cup of tea.', 'Ratings cluster between 3.8 and 4.2, so the reviews matter more than the stars.', 'Nearly half of abandoned books are dropped for a slow start. The opening pages get checked.', 'One slot is always a wildcard. You can say no to it.', 'Everything you reject teaches the next session.'];
 function renderProgress(id) {
   const log = []; const t0 = Date.now(); const total = STEPS.reduce((a, s) => a + s[2], 0);
@@ -520,6 +520,7 @@ async function results(id) {
   const shelves = await get('/api/shelves');
   const picks = s.recommendations.filter((r) => r.fit?.kind === 'pick');
   const runners = s.recommendations.filter((r) => r.fit?.kind === 'runner_up');
+  const exceptions = s.recommendations.filter((r) => r.fit?.kind === 'exception');
   const b = s.brief || {};
   const isPath = s.mode === 'path', isGift = s.mode === 'gift';
   const who = isGift ? (s.answers.find((a) => a.q_id === 'gift_who')?.free_text || 'them') : null;
@@ -531,15 +532,16 @@ async function results(id) {
     <details><summary>The brief</summary><dl class="facts">
       <dt>Need</dt><dd>${b.need}</dd><dt>Pace</dt><dd>${b.appeal_targets?.pace}</dd><dt>Tone</dt><dd>${(b.appeal_targets?.tone || []).join(', ')}</dd>
       <dt>Style</dt><dd>${(b.appeal_targets?.style || []).join(', ')}</dd><dt>Moods</dt><dd>${(b.appeal_targets?.moods || []).join(', ')}</dd><dt>Doorway</dt><dd>${b.appeal_targets?.doorway}</dd>
-      <dt>Hard excludes</dt><dd>${(b.hard_excludes || []).join(', ') || 'none'}</dd><dt>Soft avoid</dt><dd>${(b.soft_avoid || []).join(', ') || 'none'}</dd><dt>Slots</dt><dd>${(b.slots || []).join(' · ')}</dd></dl>
+      <dt>Must have</dt><dd>${(b.must_haves || []).join(', ') || 'nothing set'}</dd><dt>Hard excludes</dt><dd>${(b.hard_excludes || []).join(', ') || 'none'}</dd><dt>Soft avoid</dt><dd>${(b.soft_avoid || []).join(', ') || 'none'}</dd><dt>Slots</dt><dd>${(b.slots || []).join(' · ')}</dd></dl>
       ${b.dropped?.length ? raw(h`<div class="cap sec" style="margin-top:12px"><b>Dropped after reading reviews:</b> ${b.dropped.map((d) => `${d.title}: ${d.reason}`).join(' · ')}</div>`) : ''}
     </details>
   </section>
   <section class="section">
     <div class="row between" style="margin-bottom:20px"><div class="eyebrow">${isPath ? `Your path: ${picks.length} books` : isGift ? `${picks.length} gifts to choose from` : `Your ${picks.length} picks`}</div><div class="row noprint"><button class="btn sm" id="slateChatBtn">Ask about these picks</button><button class="btn sm" id="copyMd">Copy as text</button><a class="btn sm" href="/api/sessions/${id}/export?download=1">Download .md</a><button class="btn sm ghost" id="printBtn">Print</button></div></div>
     <div id="slateChat" hidden style="margin-bottom:24px">${chatPanel({ sessionId: id, starters: ['Which one should I start tonight?', 'Compare the top two for me', 'Why nothing lighter / funnier?', 'Which is best as an audiobook?', 'What would a Polish reader get here?'] })}</div>
-    ${isPath ? raw(h`<div class="pathline">${picks.map((r, i) => pathStage(r, i, b, shelves, id))}</div>`) : raw(h`<div class="picks">${picks.map((r) => pickCard(r, shelves, id, isGift ? who : null))}</div>`)}</section>
-  ${runners.length ? raw(h`<section class="section"><div class="eyebrow">Also considered</div>${runners.map((r) => raw(h`<div class="runner">${coverImg(r.cover, r.title)}<div><div class="ttl"><a href="#book/${r.book_id}" style="color:inherit">${r.title}</a></div><div class="by">${r.author} · ${r.year || ''}</div><p style="margin-top:6px;font-size:17px">${r.fit.one_line}</p><div class="actions" style="border:0;padding-top:10px;margin-top:6px">${shelfMenu(r, shelves)}<span class="saved" data-saved="${r.id}">${r.feedback ? labelFeedback(r.feedback) : ''}</span></div></div></div>`))}</section>`) : ''}
+    ${!picks.length ? raw(h`<p class="sec" style="max-width:62ch">No book passed both the must-haves and the second look this time. The closest calls are below.</p>`) : isPath ? raw(h`<div class="pathline">${picks.map((r, i) => pathStage(r, i, b, shelves, id))}</div>`) : raw(h`<div class="picks">${picks.map((r) => pickCard(r, shelves, id, isGift ? who : null))}</div>`)}</section>
+  ${exceptions.length ? raw(h`<section class="section"><div class="eyebrow">Worth breaking a must-have?</div><p class="cap sec" style="margin-top:4px;max-width:62ch">These miss one thing you said the book must have, so they are not picks. Save one only if the reason below wins you over; "Not for me" teaches the tool your rule was right.</p>${exceptions.map((r) => raw(h`<div class="runner">${coverImg(r.cover, r.title)}<div><div class="ttl"><a href="#book/${r.book_id}" style="color:inherit">${r.title}</a></div><div class="by">${r.author} · ${r.year || ''}</div><p style="margin-top:6px;font-size:17px"><b>Missing:</b> ${r.fit.missing}</p><p style="margin-top:4px;font-size:17px"><b>Worth it anyway?</b> ${r.fit.worth_it_because}</p>${checkLine(r.fit.check)}<div class="actions" style="border:0;padding-top:10px;margin-top:6px">${shelfMenu(r, shelves)}<span class="saved" data-saved="${r.id}">${r.feedback ? labelFeedback(r.feedback) : ''}</span></div></div></div>`))}</section>`) : ''}
+  ${runners.length ? raw(h`<section class="section"><div class="eyebrow">Also considered</div>${runners.map((r) => raw(h`<div class="runner">${coverImg(r.cover, r.title)}<div><div class="ttl"><a href="#book/${r.book_id}" style="color:inherit">${r.title}</a></div><div class="by">${r.author} · ${r.year || ''}</div><p style="margin-top:6px;font-size:17px">${r.fit.one_line}</p>${checkLine(r.fit.check)}<div class="actions" style="border:0;padding-top:10px;margin-top:6px">${shelfMenu(r, shelves)}<span class="saved" data-saved="${r.id}">${r.feedback ? labelFeedback(r.feedback) : ''}</span></div></div></div>`))}</section>`) : ''}
   <section class="section row"><a class="btn" href="#home">New search</a><button class="btn" id="again">Same answers, different picks</button><span class="cap sec">Re-runs the research excluding everything shown here.</span></section>`;
   wireShelfButtons();
   wireChats();
@@ -598,6 +600,7 @@ function pickCard(r, shelves, sessionId, giftFor = null, inPath = false) {
       <div class="row" style="gap:6px">${chips.map((c) => raw(h`<span class="chip">${c}</span>`))}</div>
       <div class="hl">${f.headline}</div>
       <p class="why">${f.why_now}</p>
+      ${checkLine(f.check)}
       <dl class="facts">
         <dt>Readers love</dt><dd>${f.what_readers_love}</dd>
         <dt>Readers complain</dt><dd>${f.what_readers_complain}</dd>
@@ -692,6 +695,11 @@ async function check(q = '') {
 function authorList(a) {
   return raw(h`<p class="prose" style="margin-top:8px">${a.note}</p><div class="authorlist">${(a.books || []).map((x) => raw(h`<div class="arow"><div><b>${x.title}</b> <span class="cap sec">${x.year || ''} · ${x.kind}</span><div style="font-size:16px;margin-top:2px">${x.why_for_you}</div>${x.caution ? raw(h`<div class="cap sec">Caution: ${x.caution}</div>`) : ''}</div><div class="fitnum"><span class="tabular">${x.fit}</span>%<a class="btn sm" href="#check/${encodeURIComponent(x.title)}">Check</a></div></div>`))}</div><p class="cap sec" style="margin-top:6px">Ranked ${when(a.at)}.</p>`);
 }
+// The slate's second opinion: the same verdict the book page shows under "Should you read it?".
+function checkLine(c) {
+  if (!c) return '';
+  return raw(h`<p class="cap sec" style="margin-top:8px">Second look, "Should I read this?": <b style="color:var(--ink)">${verdictLabel(c.verdict)}</b>, ${c.fit}% fit.</p>`);
+}
 function verdictBlock(v, when_) {
   const tone = ['yes', 'probably'].includes(v.verdict) ? 'good' : v.verdict === 'maybe' ? 'mid' : 'bad';
   return raw(h`<div class="verdict ${tone}">
@@ -699,6 +707,7 @@ function verdictBlock(v, when_) {
     <div class="hl" style="margin-top:6px">${v.headline}</div>
     <p class="prose" style="margin-top:10px">${v.why}</p>
     <dl class="facts">
+      ${v.must_haves_missing?.length ? raw(h`<dt>Misses your must-have</dt><dd>${v.must_haves_missing.join('; ')}</dd>`) : ''}
       <dt>You will love</dt><dd>${v.you_will_love}</dd>
       <dt>Will bother you</dt><dd>${v.will_bother_you}</dd>
       <dt>Biggest risk</dt><dd>${v.biggest_risk}</dd>

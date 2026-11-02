@@ -274,10 +274,16 @@ export const CHECKIN = [
     help: 'Optional. This box is where the best hits come from.',
     placeholder: 'e.g. something set by the sea; a smart book about work; like Severance but a novel; no romance please',
   },
+  {
+    id: 'musts_now', layer: 'checkin', type: 'text',
+    text: 'Anything the book MUST have this time? Non-negotiables only.',
+    help: 'Optional. Every pick will have all of them. A great book that misses one is shown apart, with the question "worth it anyway?"',
+    placeholder: 'e.g. romance at the centre; a clever, capable heroine; high fantasy with real politics; under 400 pages',
+  },
 ];
 
 // Quick mode: the minimum that still produces a good slate when the trait profile already exists.
-export const QUICK_IDS = ['mood_now', 'need_now', 'demand_now', 'time_now', 'familiar_now', 'wish_now'];
+export const QUICK_IDS = ['mood_now', 'need_now', 'demand_now', 'time_now', 'familiar_now', 'wish_now', 'musts_now'];
 
 // Reading path: a few books over weeks that form an arc, from where you are to where you want to be.
 export const PATH = [
@@ -330,7 +336,7 @@ export const PATH = [
     placeholder: 'e.g. the sea; work and dignity; "Anna Karenina" at the end; Polish reportage',
   },
 ];
-export const PATH_CHECKIN_IDS = ['mood_now', 'life_now', 'demand_now', 'time_now', 'lang_format_now', 'safe_now'];
+export const PATH_CHECKIN_IDS = ['mood_now', 'life_now', 'demand_now', 'time_now', 'lang_format_now', 'safe_now', 'musts_now'];
 
 // Gift mode: a short interview about someone else. The reader's own profile is not used.
 export const GIFT = [

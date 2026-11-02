@@ -16,7 +16,7 @@ const DB = await import('../src/db.js');
 const { recordOutcome } = await import('../src/pipeline/insights.js');
 const { sayVsDo, fingerprint } = await import('../src/pipeline/evidence.js');
 const { exportAll, importAll } = await import('../src/ops.js');
-const { titleMatch } = await import('../src/pipeline/recommend.js');
+const { titleMatch, applySecondOpinion } = await import('../src/pipeline/recommend.js');
 
 const fx = (f) => join(DIR, 'fixtures', f);
 
@@ -199,4 +199,20 @@ test('session anchors and adaptive questions round-trip as objects', () => {
   DB.updateSession(sid, { anchors: [{ id: 'anchor_1_x', layer: 'anchors', type: 'multi', text: 'X?', options: [{ id: 'a', label: 'A' }] }] });
   const s = DB.getSession(sid);
   assert.ok(Array.isArray(s.anchors) && s.anchors.length === 1 && s.anchors[0].id === 'anchor_1_x');
+});
+
+test('second opinion: only yes/probably stay picks, must-have misses become exceptions, good runners-up are promoted', () => {
+  const found = ['A', 'B', 'C', 'D', 'E', 'F'].map((t) => ({ book: { title: t } }));
+  const pick = (i) => ({ candidate_index: i, slot: 's', headline: 'h', why_now: 'w' });
+  const v = (verdict, fit, miss = []) => ({ verdict, fit, headline: `${verdict} ${fit}`, why: 'why', you_will_love: 'l', will_bother_you: 'b', biggest_risk: 'r', best_moment: 'm', not_now_if: 'n', first_pages: 'f', must_haves_missing: miss, confidence: 0.7 });
+  const ranked = { picks: [pick(0), pick(1), pick(2), pick(3)], runners_up: [{ candidate_index: 4, one_line: 'x' }, { candidate_index: 5, one_line: 'y' }], exceptions: [], dropped: [], note_to_reader: '' };
+  const verdicts = new Map([[0, v('yes', 80)], [1, v('probably_not', 40)], [2, v('maybe', 52)], [3, v('probably', 70, ['romance at the centre'])], [4, v('probably', 66)], [5, v('no', 20)]]);
+  const out = applySecondOpinion(ranked, verdicts, found);
+  assert.deepEqual(out.picks.map((p) => p.candidate_index), [0, 4]);
+  assert.equal(out.picks[1].promoted, true);
+  assert.equal(out.picks[0].check.verdict, 'yes');
+  assert.deepEqual(out.exceptions.map((e) => [e.candidate_index, e.missing]), [[3, 'romance at the centre']]);
+  assert.deepEqual(out.runners_up.map((r) => r.candidate_index), [2]);
+  assert.deepEqual(out.dropped.map((d) => d.candidate_index).sort(), [1, 5]);
+  assert.match(out.note_to_reader, /B, C, D/);
 });
