@@ -2,7 +2,9 @@
 import { createServer } from 'node:http';
 import { readFile, writeFile, stat } from 'node:fs/promises';
 import { mkdirSync } from 'node:fs';
-import { createHash } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
+import { lookup } from 'node:dns/promises';
+import { isIP } from 'node:net';
 import { join, dirname, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as DB from './db.js';
@@ -26,20 +28,39 @@ const json = (res, status, body) => { res.writeHead(status, { 'content-type': 'a
 async function body(req) {
   // Only JSON bodies are accepted: a form or text/plain POST from a web page is refused before parsing.
   if (!/^application\/json/i.test(req.headers['content-type'] || '')) throw httpError(415, 'JSON body required');
-  let s = ''; for await (const c of req) { s += c; if (s.length > 8_000_000) throw httpError(413, 'body too large'); }
-  return s ? JSON.parse(s) : {};
+  // Collect raw bytes and decode once: decoding chunk by chunk breaks Polish letters split across chunks.
+  const chunks = []; let size = 0;
+  for await (const c of req) { size += c.length; if (size > 8_000_000) throw httpError(413, 'body too large'); chunks.push(c); }
+  const s = Buffer.concat(chunks).toString('utf8');
+  if (!s) return {};
+  let v; try { v = JSON.parse(s); } catch { throw httpError(400, 'invalid JSON'); }
+  if (!v || typeof v !== 'object' || Array.isArray(v)) throw httpError(400, 'JSON object required');
+  return v;
 }
 // Same-origin guard: the API answers only this app's own pages. A page on another site that tries to call
 // localhost (CSRF) carries a foreign Origin and is refused for anything that changes state.
-function selfOrigins(req) {
-  return new Set([`http://localhost:${PORT}`, `http://127.0.0.1:${PORT}`, `http://[::1]:${PORT}`, req.headers.host ? `http://${req.headers.host}` : '']);
+// The Host header is checked against a fixed list (never trusted as-is): otherwise a site whose DNS name is
+// re-pointed at 127.0.0.1 ("DNS rebinding") would look same-origin and could read the API.
+function allowedHosts() {
+  const hosts = [`localhost:${PORT}`, `127.0.0.1:${PORT}`, `[::1]:${PORT}`];
+  if (LAN) for (const ip of lanStatus().ips) hosts.push(`${ip}:${PORT}`);
+  return new Set(hosts);
 }
+function hostAllowed(req) { return allowedHosts().has((req.headers.host || '').toLowerCase()); }
+function selfOrigins() { return new Set([...allowedHosts()].map((h) => `http://${h}`)); }
 function sameOrigin(req) {
   const origin = req.headers.origin;
-  if (origin) return selfOrigins(req).has(origin);
+  if (origin) return selfOrigins().has(origin);
   const ref = req.headers.referer;
-  if (ref) { try { return selfOrigins(req).has(new URL(ref).origin); } catch { return false; } }
+  if (ref) { try { return selfOrigins().has(new URL(ref).origin); } catch { return false; } }
+  // Browsers mark requests from other sites even when Origin and Referer are absent (e.g. an <img> tag).
+  const site = req.headers['sec-fetch-site'];
+  if (site && site !== 'same-origin' && site !== 'none') return false;
   return true; // no Origin/Referer: a local tool like curl, not a browser page
+}
+function safeEqual(a, b) {
+  const x = Buffer.from(String(a)), y = Buffer.from(String(b));
+  return x.length === y.length && x.length > 0 && timingSafeEqual(x, y);
 }
 // Home-network mode: requests that do not come from this machine must carry the token cookie.
 function isLoopback(req) { const a = req.socket.remoteAddress || ''; return a === '127.0.0.1' || a === '::1' || a === '::ffff:127.0.0.1'; }
@@ -47,10 +68,18 @@ function lanAuthorised(req) {
   if (isLoopback(req)) return true;
   const token = lanToken(); if (!token) return false;
   const cookie = (req.headers.cookie || '').split(';').map((c) => c.trim()).find((c) => c.startsWith('bf_token='));
-  return !!cookie && cookie.slice(9) === token;
+  return !!cookie && safeEqual(cookie.slice(9), token);
 }
 function privateHost(hostname) {
-  return /^(localhost|.*\.local|.*\.internal)$/i.test(hostname) || /^(127\.|10\.|0\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(hostname) || /^\[?(::1|fe80:|fc|fd)/i.test(hostname);
+  const h = hostname.replace(/^\[|\]$/g, '');
+  return /^(localhost|.*\.localhost|.*\.local|.*\.internal)$/i.test(h) || /^(127\.|10\.|0\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/.test(h) || /^(::|::1|fe80:|fc|fd|::ffff:)/i.test(h);
+}
+// A public-looking name can still resolve to a private address; check what it actually resolves to.
+async function resolvesPrivate(hostname) {
+  if (privateHost(hostname)) return true;
+  if (isIP(hostname.replace(/^\[|\]$/g, ''))) return false;
+  try { const addrs = await lookup(hostname, { all: true }); return !addrs.length || addrs.some((a) => privateHost(a.address)); }
+  catch { return true; }
 }
 
 // ---------- state ----------
@@ -86,6 +115,7 @@ route('POST', '/api/sessions/:id/adaptive', async (req, p) => { const qs = await
 route('POST', '/api/sessions/:id/anchors', async (req, p) => { const qs = await generateAnchors(Number(p.id)); return { questions: qs, next: nextQuestion(Number(p.id)) }; });
 route('POST', '/api/sessions/:id/recommend', async (req, p) => {
   const id = Number(p.id);
+  if (!DB.getSession(id)) throw httpError(404, 'no such session');
   if (progressOf(id)) return { started: false, running: true };
   runRecommendation(id).catch((e) => console.error('[recommend]', e));
   return { started: true };
@@ -175,16 +205,17 @@ route('POST', '/api/profile/auto-reflect', async () => { const r = await maybeAu
 // ---------- recommendations feedback ----------
 route('POST', '/api/recommendations/:id/feedback', async (req, p) => {
   const b = await body(req);
-  DB.setRecommendationFeedback(Number(p.id), b.feedback, b.note || null);
   const rec = DB.db.prepare('SELECT book_id FROM recommendations WHERE id = ?').get(Number(p.id));
-  if (b.shelf && rec) {
+  if (!rec) throw httpError(404, 'no such recommendation');
+  DB.setRecommendationFeedback(Number(p.id), b.feedback, b.note || null);
+  if (b.shelf) {
     const shelf = DB.listShelves().find((s) => s.name === b.shelf || s.id === b.shelf);
-    if (shelf) DB.addToShelf({ shelfId: shelf.id, bookId: rec.book_id, note: b.note || null, exclusiveStatus: shelf.kind === 'system' });
+    if (shelf) DB.addToShelf({ shelfId: shelf.id, bookId: rec.book_id, note: b.note || null, exclusiveStatus: DB.isStatusShelf(shelf) });
   }
   if (b.feedback === 'not_for_me' && b.note) {
     DB.setFact({ key: 'rejected_' + rec.book_id, value: { note: b.note }, kind: 'trait', confidence: 0.6, source: 'feedback', note: 'Rejected recommendation' });
   }
-  return { ok: true, shelves: rec ? DB.shelvesForBook(rec.book_id) : [] };
+  return { ok: true, shelves: DB.shelvesForBook(rec.book_id) };
 });
 
 // ---------- shelves ----------
@@ -195,7 +226,8 @@ route('GET', '/api/shelves/:id/items', async (req, p) => DB.shelfItems(Number(p.
 route('POST', '/api/shelves/:id/items', async (req, p) => {
   const b = await body(req);
   const shelf = DB.listShelves().find((s) => s.id === Number(p.id));
-  DB.addToShelf({ shelfId: Number(p.id), bookId: b.bookId, note: b.note || null, exclusiveStatus: shelf?.kind === 'system' });
+  if (!shelf) throw httpError(404, 'no such shelf');
+  DB.addToShelf({ shelfId: Number(p.id), bookId: b.bookId, note: b.note || null, exclusiveStatus: DB.isStatusShelf(shelf) });
   return { ok: true, shelves: DB.shelvesForBook(b.bookId) };
 });
 route('PATCH', '/api/shelf-items/:id', async (req, p) => { const b = await body(req); DB.updateShelfItem(Number(p.id), b); return { ok: true }; });
@@ -208,6 +240,9 @@ route('GET', '/api/cover', async (req, p, res) => {
   const u = new URL(req.url, 'http://x').searchParams.get('u') || '';
   let host = ''; try { host = new URL(u).hostname; } catch {}
   if (!/^https:\/\/[\w.-]+\/.+/.test(u) || !host || privateHost(host)) { res.writeHead(400); res.end(); return null; }
+  // Only this app's own pages may use the proxy (browsers send Sec-Fetch-Site on image requests).
+  const site = req.headers['sec-fetch-site'];
+  if (site && site !== 'same-origin' && site !== 'none') { res.writeHead(403); res.end(); return null; }
   const file = join(COVERS, createHash('sha1').update(u).digest('hex') + '.jpg');
   try {
     const data = await readFile(file);
@@ -215,12 +250,20 @@ route('GET', '/api/cover', async (req, p, res) => {
     res.end(data); return null;
   } catch {}
   try {
-    const r = await fetch(u, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) book-finder-personal/0.1', Accept: 'image/*' }, signal: AbortSignal.timeout(8000) });
-    if (!r.ok) throw new Error(String(r.status));
-    if (privateHost(new URL(r.url).hostname)) throw new Error('redirected to a private host');
+    // Follow redirects by hand so that every hop, not only the last one, is checked for a private address.
+    let target = u, r = null;
+    for (let hop = 0; hop < 4; hop++) {
+      const t = new URL(target);
+      if (t.protocol !== 'https:' || await resolvesPrivate(t.hostname)) throw new Error('private or non-https host');
+      r = await fetch(target, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) book-finder-personal/0.1', Accept: 'image/*' }, redirect: 'manual', signal: AbortSignal.timeout(8000) });
+      if (r.status >= 300 && r.status < 400 && r.headers.get('location')) { target = new URL(r.headers.get('location'), target).href; continue; }
+      break;
+    }
+    if (!r?.ok) throw new Error(String(r?.status));
     if (!/^image\//i.test(r.headers.get('content-type') || '')) throw new Error('not an image');
+    if (Number(r.headers.get('content-length') || 0) > 5_000_000) throw new Error('too large');
     const buf = Buffer.from(await r.arrayBuffer());
-    if (buf.length < 500) throw new Error('empty');
+    if (buf.length < 500 || buf.length > 5_000_000) throw new Error('empty or too large');
     await writeFile(file, buf);
     res.writeHead(200, { 'content-type': r.headers.get('content-type') || 'image/jpeg', 'cache-control': 'public, max-age=31536000, immutable' });
     res.end(buf);
@@ -232,7 +275,11 @@ route('GET', '/api/cover', async (req, p, res) => {
 
 // ---------- books ----------
 route('GET', '/api/books/search', async (req) => lookupBook(new URL(req.url, 'http://x').searchParams.get('q') || ''));
-route('POST', '/api/books/import', async (req) => { const b = await body(req); const book = await importGoodreadsBook(String(b.goodreadsId)); return withShelves(book); });
+route('POST', '/api/books/import', async (req) => {
+  const b = await body(req);
+  if (!/^\d{1,12}$/.test(String(b.goodreadsId || ''))) throw httpError(400, 'bad Goodreads id');
+  return withShelves(await importGoodreadsBook(String(b.goodreadsId)));
+});
 route('GET', '/api/books/:id', async (req, p) => {
   const b = DB.getBook(Number(p.id)); if (!b) throw httpError(404, 'no such book');
   const rec = DB.db.prepare("SELECT id, session_id, feedback FROM recommendations r WHERE book_id = ? AND slot NOT IN ('runner_up', 'exception') ORDER BY id DESC LIMIT 1").get(b.id) || null;
@@ -259,7 +306,13 @@ route('POST', '/api/profile/reflect', async () => await reflectProfile());
 
 // ---------- settings ----------
 route('GET', '/api/settings', async () => publicSettings());
-route('POST', '/api/settings', async (req) => { const b = await body(req); for (const [k, v] of Object.entries(b)) DB.setSetting(k, String(v)); return publicSettings(); });
+// Only these keys can be changed from the page; tokens for home-network mode and health data are managed by the server.
+const EDITABLE_SETTINGS = /^(tier_(brief|candidates|digest|rank|adaptive|reflect|chat|verdict)|model_(fast|smart|best|max)|candidates_web|chat_web|auto_reflect|adaptive_count|hardcover_token|verify_picks)$/;
+route('POST', '/api/settings', async (req) => {
+  const b = await body(req);
+  for (const [k, v] of Object.entries(b)) if (EDITABLE_SETTINGS.test(k) && v !== null && typeof v !== 'object') DB.setSetting(k, String(v));
+  return publicSettings();
+});
 function publicSettings() {
   const s = DB.allSettings();
   return {
@@ -271,6 +324,7 @@ function publicSettings() {
     hardcover_token: s.hardcover_token ? '(set)' : '',
     chat_web: (s.chat_web ?? 'true') === 'true',
     auto_reflect: (s.auto_reflect ?? 'true') === 'true',
+    verify_picks: (s.verify_picks ?? 'true') === 'true',
   };
 }
 
@@ -278,14 +332,17 @@ function withShelves(b) { return { ...b, shelves: DB.shelvesForBook(b.book_id ||
 function httpError(status, message) { const e = new Error(message || 'error'); e.status = status; return e; }
 
 // ---------- server ----------
+const LAN = DB.getSetting('lan_enabled', 'false') === 'true' && !!lanToken();
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   res.setHeader('x-content-type-options', 'nosniff');
   res.setHeader('referrer-policy', 'no-referrer');
+  res.setHeader('x-frame-options', 'DENY');
   try {
+    if (!hostAllowed(req)) { res.writeHead(421, { 'content-type': 'text/plain' }); res.end('Book Finder: unknown host name. Open http://localhost:' + PORT); return; }
     if (url.pathname === '/login') {
       const t = url.searchParams.get('t') || '';
-      if (t && t === lanToken()) { res.writeHead(302, { 'set-cookie': `bf_token=${t}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000`, location: '/' }); res.end(); return; }
+      if (t && safeEqual(t, lanToken())) { res.writeHead(302, { 'set-cookie': `bf_token=${t}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000`, location: '/' }); res.end(); return; }
       res.writeHead(403); res.end('wrong token'); return;
     }
     if (!lanAuthorised(req)) { res.writeHead(403, { 'content-type': 'text/plain' }); res.end('Book Finder: open the link with the token from Settings on this device first.'); return; }
@@ -312,14 +369,17 @@ const server = createServer(async (req, res) => {
     else res.end();
   }
 });
-const LAN = DB.getSetting('lan_enabled', 'false') === 'true' && !!lanToken();
 server.listen(PORT, LAN ? '0.0.0.0' : '127.0.0.1', () => {
   console.log(`Book Finder running at http://localhost:${PORT}${LAN ? ' (home-network mode on; token required from other devices)' : ''}`);
-  try { const b = backupDatabase(); if (b) console.log('[backup]', b.file); } catch (e) { console.error('[backup]', e.message); }
+  const backup = () => { try { const b = backupDatabase(); if (b) console.log('[backup]', b.file); } catch (e) { console.error('[backup]', e.message); } };
+  backup();
+  setInterval(backup, 3 * 3600_000); // a new daily copy even when the app stays open for days
   setTimeout(() => checkHealth().then((h) => { if (h.problems.length) console.warn('[health]', h.problems.join(' | ')); }).catch(() => {}), 10_000);
   // Weekly Reader DNA rebuild: checked shortly after start and every few hours while the app runs.
   const tick = () => maybeAutoReflect().then((r) => { if (r.ran) console.log('[auto-reflect] done'); }).catch((e) => console.error('[auto-reflect]', e.message));
   setTimeout(tick, 45_000);
   setInterval(tick, 6 * 3600_000);
+  // Close the database cleanly on Ctrl+C or when the window is closed.
+  for (const sig of ['SIGINT', 'SIGTERM', 'SIGBREAK']) process.on(sig, () => { try { DB.db.close(); } catch {} process.exit(0); });
   if (process.argv.includes('--open')) import('node:child_process').then(({ exec }) => exec(`start "" "http://localhost:${PORT}"`));
 });

@@ -6,6 +6,7 @@ export async function searchHardcover(q, token, { limit = 5 } = {}) {
   const r = await fetch('https://api.hardcover.app/v1/graphql', {
     method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}`, 'user-agent': 'book-finder-personal/0.1' },
     body: JSON.stringify({ query, variables: { q, n: limit } }),
+    signal: AbortSignal.timeout(15000),
   });
   if (!r.ok) throw new Error(`hardcover ${r.status}`);
   const j = await r.json();

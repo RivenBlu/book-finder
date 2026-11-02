@@ -10,16 +10,17 @@ import { searchLubimyczytac } from './sources/lubimyczytac.js';
 
 // ---------- backups ----------
 const BACKUPS = join(DB.DATA_DIR, 'backups');
-export function backupDatabase({ keep = 7 } = {}) {
+export function backupDatabase({ keep = 7, suffix = '' } = {}) {
   mkdirSync(BACKUPS, { recursive: true });
   const src = join(DB.DATA_DIR, 'bookfinder.db');
   if (!existsSync(src) || process.env.BOOKFINDER_DB) return null;
   const today = new Date().toISOString().slice(0, 10);
-  const dest = join(BACKUPS, `bookfinder-${today}.db`);
+  const dest = join(BACKUPS, suffix ? `bookfinder-${today}-${suffix}-${Date.now()}.db` : `bookfinder-${today}.db`);
   if (!existsSync(dest)) {
-    DB.db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
-    copyFileSync(src, dest);
+    // VACUUM INTO writes a consistent copy even while the app is writing.
+    DB.db.prepare('VACUUM INTO ?').run(dest);
   }
+  if (suffix) return { file: dest };
   const files = readdirSync(BACKUPS).filter((f) => /^bookfinder-\d{4}-\d{2}-\d{2}\.db$/.test(f)).sort();
   for (const f of files.slice(0, Math.max(0, files.length - keep))) unlinkSync(join(BACKUPS, f));
   return { file: dest, kept: Math.min(files.length, keep) };
@@ -58,10 +59,23 @@ export function exportAll() {
 export function importAll(data, { replace = false } = {}) {
   if (data?.format !== 'book-finder-export') throw new Error('not a Book Finder export');
   const counts = {};
+  // Merging keeps the exported row ids; if they collide with local rows, child rows would attach to the wrong
+  // parent (another session's answers). Refuse instead of corrupting, and say what to do.
+  if (!replace) {
+    for (const t of TABLES.filter((x) => x !== 'settings')) {
+      const ids = (data.tables?.[t] || []).map((r) => r.id).filter((x) => x != null);
+      if (!ids.length) continue;
+      const clash = DB.db.prepare(`SELECT count(*) n FROM ${t} WHERE id IN (SELECT value FROM json_each(?))`).get(JSON.stringify(ids)).n;
+      if (clash) throw new Error(`Cannot merge: ${clash} ${t} rows have the same ids as rows already here. Use "Replace everything" instead (a backup is made first).`);
+    }
+  }
+  if (replace) backupDatabase({ suffix: 'before-import' });
+  // The foreign-key pragma has no effect inside a transaction, so it is switched off before BEGIN.
+  DB.db.exec('PRAGMA foreign_keys = OFF');
   DB.db.exec('BEGIN');
   try {
-    DB.db.exec('PRAGMA foreign_keys = OFF');
-    if (replace) for (const t of [...TABLES].reverse()) DB.db.exec(`DELETE FROM ${t}`);
+    // Replace keeps what the export deliberately leaves out (tokens, home-network mode, health).
+    if (replace) for (const t of [...TABLES].reverse()) DB.db.exec(t === 'settings' ? "DELETE FROM settings WHERE key NOT LIKE '%token%' AND key NOT LIKE 'lan_%' AND key != 'health'" : `DELETE FROM ${t}`);
     for (const t of TABLES) {
       const rows = data.tables?.[t] || [];
       if (!rows.length) continue;
@@ -87,7 +101,9 @@ export function lanStatus() {
 }
 export function setLan(enabled) {
   DB.setSetting('lan_enabled', enabled ? 'true' : 'false');
-  if (enabled && !DB.getSetting('lan_token', '')) DB.setSetting('lan_token', randomBytes(24).toString('base64url'));
+  // A fresh token every time it is switched on, so old links and cookies stop working after a switch-off.
+  if (enabled) DB.setSetting('lan_token', randomBytes(24).toString('base64url'));
+  else DB.setSetting('lan_token', '');
   return lanStatus();
 }
 export function lanToken() { return DB.getSetting('lan_token', ''); }

@@ -55,7 +55,7 @@ p + p { margin-top: 1em; }
 .sec { color: var(--ink-2); }
 .cap { font-family: var(--ui); font-size: 14px; line-height: 1.4; }
 .eyebrow { font-family: var(--ui); font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); }
-.prose { max-width: 65ch; }
+.prose { max-width: 65ch; white-space: pre-line; }
 .prose p + p { margin-top: 1em; }
 .tabular { font-variant-numeric: tabular-nums; }
 :focus-visible { outline: 2px solid var(--lamp); outline-offset: 2px; border-radius: 6px; }
@@ -227,8 +227,9 @@ th { text-align: left; font-weight: 600; color: var(--ink-2); padding: 10px 12px
 td { padding: 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .tablewrap { overflow-x: auto; }
-.rating-input span { cursor: pointer; font-size: 26px; color: var(--line-2); transition: color .1s; }
-.rating-input span.on { color: var(--amber); }
+.rating-input span { cursor: pointer; font-size: 26px; color: var(--ink-2); opacity: .45; transition: color .1s, opacity .1s; border-radius: 4px; }
+.rating-input span:focus-visible { outline: 2px solid var(--lamp); outline-offset: 2px; opacity: 1; }
+.rating-input span.on { color: var(--amber); opacity: 1; }
 .review { padding: 14px 0; border-top: 1px solid var(--line); white-space: pre-wrap; font-size: 16px; }
 .review .m { font-family: var(--ui); font-size: 14px; color: var(--ink-2); margin-bottom: 4px; }
 .fact { padding: 14px 0; border-top: 1px solid var(--line); display: grid; gap: 4px; }
@@ -290,7 +291,10 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 /* print: the slate as a clean sheet */
 @media print {
   .top, .progressbar, .toast, .noprint, .actions, .chat, [id^="chat-"], #slateChat, details:not([open]) { display: none !important; }
+  /* Paper is always light, whatever the screen theme. */
+  :root, :root[data-theme="dark"] { --paper: #fff; --surface: #fff; --tint: #f3f3f3; --ink: #000; --ink-2: #444; --line: #ccc; --line-2: #999; --lamp: #1C6B52; --amber: #8a6410; --amber-ink: #000; }
   body { background: #fff; color: #000; font-size: 12pt; }
+  .row:has(> #again), .row:has(> #again) * { display: none !important; }
   main { max-width: none; padding: 0; }
   .card { box-shadow: none; border: 1px solid #ccc; break-inside: avoid; }
   .pick { grid-template-columns: 90px 1fr; }
@@ -352,7 +356,7 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 14px; backgrou
 @media (min-width: 860px) { .hero { grid-template-columns: minmax(0, 1.05fr) minmax(300px, .95fr); grid-template-areas: "text pic" "modes modes"; } .hero-pic { justify-self: end; } }
 .lede-small { font-family: var(--ui); font-size: 15px; color: var(--lamp); font-weight: 600; letter-spacing: .01em; }
 .hero-art { width: 100%; height: auto; display: block; overflow: visible; }
-.star { animation: twinkle 3.2s ease-in-out infinite; transform-origin: center; transform-box: fill-box; }
+svg .star { animation: twinkle 3.2s ease-in-out infinite; transform-origin: center; transform-box: fill-box; }
 @keyframes twinkle { 0%, 100% { opacity: .35; transform: scale(.8); } 50% { opacity: 1; transform: scale(1.25); } }
 .page { animation: drift 7s ease-in-out infinite alternate; }
 @keyframes drift { from { transform: translateY(0) rotate(0); } to { transform: translateY(-14px) rotate(2deg); } }
@@ -365,7 +369,7 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 14px; backgrou
 .spotwrap { flex: 0 0 auto; }
 .spotwrap .spot-art { width: 110px; }
 @media (max-width: 640px) { .spotwrap { display: none; } }
-@media (prefers-reduced-motion: reduce) { .star, .page, .leaf { animation: none; } }
+@media (prefers-reduced-motion: reduce) { svg .star, .page, .leaf { animation: none; } }
 
 /* Loop closer and debrief: the "remind me" panel and the Past picks page. */
 .remind { margin-top: 16px; padding: 16px 18px; border-radius: 12px; background: var(--tint); font-size: 17px; }

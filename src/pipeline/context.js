@@ -63,10 +63,11 @@ export function feedbackDigest() {
 
 export function excludeList() {
   // Everything already read, on a shelf, recommended before or rejected: never recommend again (except "Someday"/"Maybe", which may resurface).
-  const hist = listHistory({ limit: 5000 }).map((r) => `${r.title} - ${r.author || ''}`);
-  const shelved = allShelvedBooks().filter((r) => !['Someday', 'Maybe'].includes(r.shelf)).map((r) => `${r.title} - ${r.author}`);
-  const recs = pastRecommendations(400).map((r) => `${r.title} - ${r.author}`);
-  return [...new Set([...hist, ...shelved, ...recs])];
+  // The list sent to the model is capped (prompt size); the full check happens in code after enrichment (knownBooks()).
+  const hist = listHistory({ limit: 600 }).filter((r) => r.status !== 'to-read').map((r) => `${r.title} - ${r.author || ''}`);
+  const shelved = allShelvedBooks().filter((r) => !['Someday', 'Maybe', 'Gifts'].includes(r.shelf)).map((r) => `${r.title} - ${r.author}`);
+  const recs = pastRecommendations(200).map((r) => `${r.title} - ${r.author}`);
+  return [...new Set([...shelved, ...recs, ...hist])].slice(0, 700);
 }
 
 export function answersDigest(sessionId) {

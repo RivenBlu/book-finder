@@ -1,12 +1,33 @@
 // Book Finder UI. Vanilla ES module, hash routing, no build step.
 import { HERO, FLIP, STACK, LAMP, COMPASS } from './art.js';
 const app = document.getElementById('app');
+// Each navigation bumps routeGen. A GET that returns after the reader has moved to another page never resolves,
+// so a slow page can no longer paint over the one she is looking at.
+let routeGen = 0;
+let enrichPoll = 0;
 const api = async (method, url, body) => {
+  const gen = routeGen;
   const r = await fetch(url, { method, headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
   const j = await r.json().catch(() => ({}));
+  if (method === 'GET' && gen !== routeGen) return new Promise(() => {});
   if (!r.ok) throw new Error(j.error || r.statusText);
   return j;
 };
+// Button actions: one run at a time (no double submits), the button is disabled meanwhile, errors become a toast.
+const busy = new WeakSet();
+const act = (btn, fn) => async (...a) => {
+  if (btn && busy.has(btn)) return;
+  if (btn) { busy.add(btn); btn.disabled = true; }
+  try { await fn(...a); }
+  catch (e) { toast(e.message || 'Something went wrong'); }
+  finally { if (btn) { busy.delete(btn); btn.disabled = false; } }
+};
+// Anything that still fails without its own handler is shown instead of disappearing into the console.
+// Rating stars work from the keyboard too: Tab to a star, Enter or Space to choose it.
+document.addEventListener('keydown', (e) => {
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.matches?.('.rating-input [data-n]')) { e.preventDefault(); e.stopPropagation(); e.target.click(); }
+}, true);
+window.addEventListener('unhandledrejection', (e) => { toast(e.reason?.message || 'Something went wrong'); });
 const get = (u) => api('GET', u), post = (u, b) => api('POST', u, b || {}), patch = (u, b) => api('PATCH', u, b), del = (u) => api('DELETE', u);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 class Raw { constructor(s) { this.s = s; } }
@@ -15,7 +36,7 @@ const h = (strings, ...vals) => strings.map((s, i) => s + (i < vals.length ? ren
 const render = (v) => (v instanceof Raw ? v.s : Array.isArray(v) ? v.map(render).join('') : v == null || v === false ? '' : esc(v));
 const fmtN = (n) => (n == null ? '?' : Number(n).toLocaleString());
 const when = (iso) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
-const toast = (msg) => { const t = document.getElementById('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), 4000); };
+const toast = (msg) => { const t = document.getElementById('toast'); if (!t) return; t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), 4000); };
 const rating = (r, n) => (r ? raw(h`<span class="rating"><span class="star">★</span>${Number(r).toFixed(1)}${n != null ? raw(h`<span>· ${fmtN(n)}</span>`) : ''}</span>`) : '');
 const coverImg = (src, title, cls = 'cover') => (src ? raw(h`<img class="${cls}" src="/api/cover?u=${encodeURIComponent(src)}" alt="${title}" onerror="this.outerHTML='<div class=&quot;${cls} fallback&quot;>'+this.alt.replace(/</g,'')+'</div>'">`) : raw(h`<div class="${cls} fallback">${title}</div>`));
 // Minimal, safe Markdown: escape first, then paragraphs, lists, bold/italic.
@@ -58,6 +79,7 @@ themeBtn.onclick = () => {
 // ---------- router ----------
 const routes = { home, interview, results, shelves, profile, history, settings, book, session: results, check, followups: followupsPage, report, past, debrief: debriefPage };
 async function router() {
+  routeGen++;
   const [name, ...args] = (location.hash.slice(1) || 'home').split('/');
   document.querySelectorAll('nav a').forEach((a) => a.classList.toggle('active', a.dataset.nav === name || (['interview', 'book', 'session', 'debrief', 'followups'].includes(name) && a.dataset.nav === 'home') || (name === 'results' && a.dataset.nav === 'past')));
   window.onkeydown = null; setBar(null);
@@ -106,10 +128,10 @@ async function home() {
     <div><div class="eyebrow">Shelves</div><div class="row" style="margin-top:12px">${st.shelves.filter((s) => s.count || s.kind === 'system').slice(0, 7).map((s) => raw(h`<a href="#shelves/${s.id}" class="chip ${s.count ? 'lamp' : ''}">${s.name} <span class="tabular">${s.count}</span></a>`))}</div></div>
     <div><div class="eyebrow">Reader DNA</div><p class="sec" style="margin-top:12px;font-size:17px">${st.readerDna ? st.readerDna.slice(0, 200) + '…' : 'Not built yet. After the taste questions, import your Goodreads or StoryGraph history and rebuild it on the Reader DNA page.'}</p><p style="margin-top:12px"><a href="#profile" class="btn sm">Open</a></p></div>
   </section>`;
-  app.querySelectorAll('.mode').forEach((m) => m.onclick = async () => { if (m.disabled) return; const s = await post('/api/sessions', { mode: m.dataset.mode }); location.hash = `interview/${s.id}`; });
-  const redo = document.getElementById('redoTaste'); if (redo) redo.onclick = async (e) => { e.preventDefault(); const s = await post('/api/sessions', { mode: 'onboarding' }); location.hash = `interview/${s.id}`; };
+  app.querySelectorAll('.mode').forEach((m) => m.onclick = act(m, async () => { const s = await post('/api/sessions', { mode: m.dataset.mode }); location.hash = `interview/${s.id}`; }));
+  const redo = document.getElementById('redoTaste'); if (redo) redo.onclick = (e) => { e.preventDefault(); act(redo, async () => { const s = await post('/api/sessions', { mode: 'onboarding' }); location.hash = `interview/${s.id}`; })(); };
   document.getElementById('checkForm').onsubmit = (e) => { e.preventDefault(); const q = document.getElementById('checkQ').value.trim(); if (q) location.hash = `check/${encodeURIComponent(q)}`; };
-  app.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => { await del(`/api/sessions/${b.dataset.del}`); router(); });
+  app.querySelectorAll('[data-del]').forEach((b) => b.onclick = act(b, async () => { await del(`/api/sessions/${b.dataset.del}`); router(); }));
 }
 
 // ---------- interview ----------
@@ -135,7 +157,7 @@ async function interview(id) {
     const fu = await get(`/api/followups?exclude=${id}`);
     if (fu.length) { try { sessionStorage.setItem('bf-fu-' + id, '1'); } catch {} return renderFollowups(fu, () => interview(id)); }
   }
-  renderQuestion(id, await get(`/api/sessions/${id}/next`), s.mode, '');
+  return renderQuestion(id, await get(`/api/sessions/${id}/next`), s.mode, '');
 }
 
 // ---------- loop closer ----------
@@ -180,7 +202,7 @@ function askOutcome(r, { index = 0, total = 1, eyebrow = 'What happened', previo
   const pick = (id) => {
     outcome = id; app.querySelectorAll('.opt').forEach((x) => x.classList.toggle('on', x.dataset.id === id));
     detail.hidden = false; next.hidden = false;
-    if (id === 'finished') detail.innerHTML = h`<label class="lbl">Your rating</label><div class="rating-input" data-r="0">${[1, 2, 3, 4, 5].map((n) => raw(h`<span data-n="${n}">★</span>`))}</div><p class="cap sec" style="margin-top:10px">Next: five quick questions on what worked and what did not, while it is fresh.</p>`;
+    if (id === 'finished') detail.innerHTML = h`<label class="lbl">Your rating</label><div class="rating-input" role="radiogroup" aria-label="Your rating" data-r="0">${[1, 2, 3, 4, 5].map((n) => raw(h`<span data-n="${n}" role="radio" tabindex="0" aria-label="${n} of 5 stars">★</span>`))}</div><p class="cap sec" style="margin-top:10px">Next: five quick questions on what worked and what did not, while it is fresh.</p>`;
     else if (id === 'dropped') detail.innerHTML = h`<label class="lbl">Around which page?</label><input type="number" id="page" min="1" style="width:120px" placeholder="${r.pages ? 'of ' + r.pages : ''}"><p class="cap sec" style="margin-top:10px">Next: four quick questions on what made you stop. The most useful answers in the app.</p>`;
     else if (id === 'not_interested') detail.innerHTML = h`<label class="lbl">Why not? One line.</label><textarea id="reason" rows="2"></textarea>`;
     else detail.innerHTML = h`<p class="cap sec">Kept on Up next. It will not be suggested again, and I will ask again later.</p>`;
@@ -188,10 +210,14 @@ function askOutcome(r, { index = 0, total = 1, eyebrow = 'What happened', previo
     const ta = detail.querySelector('textarea'); if (ta) ta.focus(); const inp = detail.querySelector('input'); if (inp) inp.focus();
   };
   app.querySelectorAll('.opt').forEach((b) => b.onclick = () => pick(b.dataset.id));
+  let saving = false;
   next.onclick = async () => {
-    if (!outcome) return;
+    if (!outcome || saving) return;
+    saving = true; next.disabled = true;
     const body = { outcome, reason: detail.querySelector('#reason')?.value.trim() || null, page: Number(detail.querySelector('#page')?.value) || null, rating: Number(detail.querySelector('.rating-input')?.dataset.r) || null };
-    if (r.id && r.book_id) await post(`/api/recommendations/${r.id}/outcome`, body);
+    try { if (r.id && r.book_id) await post(`/api/recommendations/${r.id}/outcome`, body); }
+    catch (e) { saving = false; next.disabled = false; return toast(e.message || 'Could not save'); }
+    window.onkeydown = null;
     done(body);
   };
   document.getElementById('skipAll').onclick = () => skip();
@@ -303,7 +329,8 @@ async function followupsPage() {
 // #debrief/<bookId>/<recId or 0>/<finished|dropped|ask>  (returns to the page it was opened from)
 async function debriefPage(bookId, recId = '0', outcome = 'ask') {
   bookId = Number(bookId); recId = Number(recId) || null;
-  let back = 'home'; try { back = sessionStorage.getItem('bf-return') || 'home'; } catch {}
+  // The way back is set by goDebrief and used once; a debrief opened from a plain link goes home.
+  let back = 'home'; try { back = sessionStorage.getItem('bf-return') || 'home'; sessionStorage.removeItem('bf-return'); } catch {}
   const b = await get(`/api/books/${bookId}`);
   const plan = await get(`/api/debrief/plan?bookId=${bookId}&rec=${recId || ''}&outcome=${outcome === 'dropped' ? 'dropped' : 'finished'}`);
   const r = { id: recId, book_id: bookId, title: b.title, author: b.author, cover: b.cover, pages: b.pages, year: b.year, description: b.description, review_digest: b.review_digest, created_at: plan.rec?.created_at || null, fit: plan.rec ? { headline: plan.rec.headline, risk_for_you: plan.rec.risk_for_you } : {} };
@@ -313,12 +340,13 @@ async function debriefPage(bookId, recId = '0', outcome = 'ask') {
     // Outcome already chosen (home page, book page, shelves): ask only rating or page, then the questions.
     setBar(0);
     app.innerHTML = h`<div class="interview"><div class="q"><div class="meta"><span class="eyebrow">After reading</span></div>${bookHead(r)}
-      <div style="margin-top:20px">${outcome === 'finished' ? raw(h`<label class="lbl">Your rating</label><div class="rating-input" data-r="${plan.previous?.rating || 0}">${[1, 2, 3, 4, 5].map((n) => raw(h`<span class="${n <= (plan.previous?.rating || 0) ? 'on' : ''}" data-n="${n}">★</span>`))}</div>`) : raw(h`<label class="lbl">Around which page did you stop?</label><input type="number" id="page" min="1" style="width:120px" placeholder="${b.pages ? 'of ' + b.pages : ''}">`)}
+      <div style="margin-top:20px">${outcome === 'finished' ? raw(h`<label class="lbl">Your rating</label><div class="rating-input" role="radiogroup" aria-label="Your rating" data-r="${plan.previous?.rating || 0}">${[1, 2, 3, 4, 5].map((n) => raw(h`<span class="${n <= (plan.previous?.rating || 0) ? 'on' : ''}" data-n="${n}" role="radio" tabindex="0" aria-label="${n} of 5 stars">★</span>`))}</div>`) : raw(h`<label class="lbl">Around which page did you stop?</label><input type="number" id="page" min="1" style="width:120px" placeholder="${b.pages ? 'of ' + b.pages : ''}">`)}
       ${plan.previous ? raw(h`<p class="cap sec" style="margin-top:12px">You debriefed this one on ${when(plan.previous.created_at)}. Doing it again replaces what the tool reads.</p>`) : ''}</div>
       <div class="qactions"><button class="btn primary" id="go">Continue <span class="kbd" style="background:transparent;color:inherit;border-color:currentColor;opacity:.7">↵</span></button><a class="btn ghost" href="#${back}">Cancel</a><span class="hint">${outcome === 'finished' ? 'Five quick questions follow.' : 'Four quick questions follow.'}</span></div></div></div>`;
     wireRemind();
     const ri = app.querySelector('.rating-input'); if (ri) ri.querySelectorAll('span').forEach((sp) => sp.onclick = () => { ri.dataset.r = sp.dataset.n; ri.querySelectorAll('span').forEach((x) => x.classList.toggle('on', Number(x.dataset.n) <= Number(sp.dataset.n))); });
-    const go = () => start({ outcome, rating: Number(ri?.dataset.r) || null, page: Number(document.getElementById('page')?.value) || null, reason: null });
+    let started = false;
+    const go = () => { if (started) return; started = true; window.onkeydown = null; start({ outcome, rating: Number(ri?.dataset.r) || null, page: Number(document.getElementById('page')?.value) || null, reason: null }); };
     document.getElementById('go').onclick = go;
     window.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } };
     return;
@@ -366,13 +394,13 @@ async function renderQuestion(id, nx, mode, reaction) {
   if (nx.needsAnchors) {
     setBar(Math.round(Math.min(96, 4 + (nx.index / Math.max(nx.total, 1)) * 92)));
     app.innerHTML = h`<div class="interview"><div class="q"><div class="eyebrow">Your books</div><div class="text">Reading what you wrote about the books you loved…</div><p class="help"><span class="spinner"></span> &nbsp;One question per book: which part of it did the work?</p></div></div>`;
-    const r = await post(`/api/sessions/${id}/anchors`);
+    let r; try { r = await post(`/api/sessions/${id}/anchors`); } catch (e) { return interviewRetry(id, mode, e); }
     return renderQuestion(id, r.next, mode, '');
   }
   if (nx.needsAdaptive) {
     setBar(88);
     app.innerHTML = h`<div class="interview"><div class="q"><div class="eyebrow">Follow-ups</div><div class="text">Reading your answers…</div><p class="help"><span class="spinner"></span> &nbsp;Two or three sharper questions, written for you.</p></div></div>`;
-    const r = await post(`/api/sessions/${id}/adaptive`);
+    let r; try { r = await post(`/api/sessions/${id}/adaptive`); } catch (e) { return interviewRetry(id, mode, e); }
     return renderQuestion(id, r.next, mode, '');
   }
   if (nx.done) { setBar(100); return mode === 'onboarding' ? renderOnboardingDone() : renderSummary(id); }
@@ -391,12 +419,12 @@ async function renderQuestion(id, nx, mode, reaction) {
     ${q.previous ? raw(h`<div class="prev">Last time: <b>${(q.previous.labels || []).join(', ')}${q.previous.text ? (q.previous.labels?.length ? ' · ' : '') + q.previous.text : ''}</b>. Press Enter to keep it, or change it.</div>`) : ''}
     ${isText ? raw(h`<textarea id="free" placeholder="${q.placeholder || ''}">${prevText}</textarea>`) : raw(h`
       <div class="opts ${isScale ? 'scale' : ''}">
-        ${q.options.map((o, i) => raw(h`<button class="opt ${sel.includes(o.id) ? 'on' : ''} ${q.pair ? 'pair' : ''}" data-id="${o.id}"><span class="kbd">${isScale ? o.id : i + 1}</span><span><span class="l">${q.pair ? o.hint : o.label || (isScale ? '' : o.id)}</span>${!q.pair && o.hint ? raw(h`<span class="h">${o.hint}</span>`) : ''}${q.pair ? raw(h`<span class="h">${o.label}</span>`) : ''}</span><span class="ck">✓</span></button>`))}
+        ${q.options.map((o, i) => raw(h`<button class="opt ${sel.includes(o.id) ? 'on' : ''} ${q.pair ? 'pair' : ''}" data-id="${o.id}"><span class="kbd">${isScale ? o.id : i + 1}</span><span${isScale && !o.label ? raw(h` aria-label="${o.id} of 5"`) : ''}><span class="l">${q.pair ? o.hint : o.label || (isScale ? '' : o.id)}</span>${!q.pair && o.hint ? raw(h`<span class="h">${o.hint}</span>`) : ''}${q.pair ? raw(h`<span class="h">${o.label}</span>`) : ''}</span><span class="ck">✓</span></button>`))}
       </div>
       ${isScale ? raw(h`<div class="scale-ends"><span>${q.left || ''}</span><span>${q.right || ''}</span></div>`) : ''}
       <div class="other"><button class="btn sm ghost" id="otherBtn">✎ Other / my own words</button><textarea id="free" hidden placeholder="Say it your way. Free text is read as the strongest signal.">${prevText}</textarea></div>`)}
     <div class="qactions">
-      <button class="btn primary" id="next">${isMulti ? 'Continue' : isText ? 'Continue' : 'Continue'} <span class="kbd" style="background:transparent;color:inherit;border-color:currentColor;opacity:.7">↵</span></button>
+      <button class="btn primary" id="next">Continue <span class="kbd" style="background:transparent;color:inherit;border-color:currentColor;opacity:.7">↵</span></button>
       ${nx.index > 0 ? raw(h`<button class="btn ghost" id="back">← Back</button>`) : ''}
       ${q.required ? '' : raw(h`<button class="btn ghost" id="skip">Skip</button>`)}
       <span class="hint">${isMulti ? 'Pick any that apply, then Continue.' : isText ? 'Ctrl+Enter to continue.' : isScale ? 'Press 1 to 5.' : 'Press a number, or click.'}</span>
@@ -410,7 +438,8 @@ async function renderQuestion(id, nx, mode, reaction) {
   const leave = async (fn) => {
     if (leaving) return; leaving = true;
     const qEl = app.querySelector('.q'); if (qEl) { qEl.classList.add('out'); await new Promise((r) => setTimeout(r, 170)); }
-    await fn();
+    // If saving fails, the question comes back instead of fading into an empty page.
+    try { await fn(); } catch (e) { leaving = false; qEl?.classList.remove('out'); toast(e.message || 'Could not save; try again'); }
   };
   const submit = (skipped = false) => {
     if (!skipped && q.required && !free?.value.trim() && !sel.length) return toast('This one matters. Please answer it.');
@@ -418,7 +447,7 @@ async function renderQuestion(id, nx, mode, reaction) {
     if (!skipped && !isText && payload.answer == null && !payload.freeText) return toast('Pick an option or write your own.');
     leave(async () => {
       const r = await post(`/api/sessions/${id}/answer`, payload);
-      renderQuestion(id, r, mode, skipped ? 'Skipped.' : reactionFor(q, payload.answer, payload.freeText));
+      await renderQuestion(id, r, mode, skipped ? 'Skipped.' : reactionFor(q, payload.answer, payload.freeText));
     });
   };
   app.querySelectorAll('.opt').forEach((b) => b.onclick = () => {
@@ -439,6 +468,13 @@ async function renderQuestion(id, nx, mode, reaction) {
   if (isText) free.focus();
 }
 
+// The model-written questions failed (network, login): say so and offer a retry instead of a spinner forever.
+function interviewRetry(id, mode, e) {
+  setBar(null);
+  app.innerHTML = h`<div class="interview"><div class="q"><div class="eyebrow">A hiccup</div><div class="text">I could not write the next questions.</div><p class="help">${e.message || ''}</p><div class="qactions"><button class="btn primary" id="retryQ">Try again</button><a class="btn ghost" href="#home">Home</a></div></div></div>`;
+  document.getElementById('retryQ').onclick = () => interview(id);
+}
+
 function renderOnboardingDone() {
   app.innerHTML = h`<div class="interview"><div class="q"><div class="eyebrow">Taste profile</div><div class="text">Saved. Every answer keeps its date, so when your taste drifts, the old answer stays visible.</div>
     <p class="help">Next: import your reading history, or find a book for tonight.</p>
@@ -454,12 +490,13 @@ async function renderSummary(id) {
     return { q: a.question, a: [labels.join(', '), a.free_text].filter(Boolean).join(' · ') };
   });
   app.innerHTML = h`<div class="interview"><div class="q"><div class="eyebrow">That is everything</div><div class="text">Here is what I heard. Ready when you are.</div>
-    <p class="help">${s.mode === 'path' ? 'Next I design the arc, think of candidates for every stage, read real reviews on each, and put the books in order with checkpoints and swaps. About six minutes; you can leave the page.' : s.mode === 'gift' ? 'Next I write a brief about them, think of candidates, read real reviews, and choose three to five safe-to-give books. About five minutes.' : 'Next I write a brief, think of 12 to 22 candidates, read real reviews on each, and choose three to five. It takes about five minutes and you can leave the page.'}</p>
+    <p class="help">${s.mode === 'path' ? 'Next I design the arc, think of candidates for every stage, read real reviews on each, and put the books in order with checkpoints and swaps. About six minutes; you can leave the page.' : s.mode === 'gift' ? 'Next I write a brief about them, think of candidates, read real reviews, and choose three to five safe-to-give books. About five minutes.' : 'Next I write a brief, think of 12 to 22 candidates, read real reviews on each, choose up to five, and then ask "Should I read this?" about each one so nothing doubtful gets through. About ten minutes; you can leave the page.'}</p>
     <div class="summary">${rows.map((r) => raw(h`<div class="s"><span class="k">${r.q.replace(/\?$/, '')}</span><span>${r.a}</span></div>`))}</div>
     <div class="qactions"><button class="btn primary big" id="go">${s.mode === 'path' ? 'Build my path' : s.mode === 'gift' ? 'Find the gift' : 'Find my books'}</button><button class="btn ghost" id="back">← Change an answer</button></div></div></div>`;
-  document.getElementById('go').onclick = async () => { await post(`/api/sessions/${id}/recommend`); renderProgress(id); };
-  document.getElementById('back').onclick = async () => renderQuestion(id, await post(`/api/sessions/${id}/back`), s.mode, '');
-  window.onkeydown = (e) => { if (e.key === 'Enter') document.getElementById('go').click(); };
+  const goBtn = document.getElementById('go'), backBtn = document.getElementById('back');
+  goBtn.onclick = act(goBtn, async () => { window.onkeydown = null; await post(`/api/sessions/${id}/recommend`); renderProgress(id); });
+  backBtn.onclick = act(backBtn, async () => { window.onkeydown = null; await renderQuestion(id, await post(`/api/sessions/${id}/back`), s.mode, ''); });
+  window.onkeydown = (e) => { if (e.key === 'Enter' && document.getElementById('go') === goBtn) { e.preventDefault(); goBtn.click(); } };
 }
 
 // ---------- the five-minute job ----------
@@ -467,8 +504,12 @@ const STEPS = [['brief', 'Reading your answers', 35], ['candidates', 'Thinking o
 const WAIT_LINES = ['Librarians call this a readers\' advisory interview. It usually takes a desk and a cup of tea.', 'Ratings cluster between 3.8 and 4.2, so the reviews matter more than the stars.', 'Nearly half of abandoned books are dropped for a slow start. The opening pages get checked.', 'One slot is always a wildcard. You can say no to it.', 'Everything you reject teaches the next session.'];
 function renderProgress(id) {
   const log = []; const t0 = Date.now(); const total = STEPS.reduce((a, s) => a + s[2], 0);
-  let stepStart = t0; let lineIdx = 0; let timer;
+  let stepStart = t0; let lineIdx = 0; let timer; let es = null;
+  // The progress screen belongs to the page it was opened on; once the reader navigates away it stops drawing.
+  const gen = routeGen;
+  const alive = () => { if (gen === routeGen) return true; clearInterval(timer); es?.close(); return false; };
   const draw = () => {
+    if (!alive()) return;
     const current = log.length ? log[log.length - 1].step : 'brief';
     const ci = Math.max(0, STEPS.findIndex((s) => s[0] === current));
     const done = current === 'done';
@@ -496,21 +537,22 @@ function renderProgress(id) {
       ${cands ? raw(h`<details><summary>Long list (${cands.length})</summary><p class="cap sec">${cands.join(' · ')}</p></details>`) : ''}
       ${!done && !err ? raw(h`<p class="wait">${WAIT_LINES[lineIdx % WAIT_LINES.length]}</p>`) : ''}
     </div>`;
-    const retry = document.getElementById('retry'); if (retry) retry.onclick = async () => { await post(`/api/sessions/${id}/recommend`); renderProgress(id); };
+    const retry = document.getElementById('retry'); if (retry) retry.onclick = act(retry, async () => { await post(`/api/sessions/${id}/recommend`); renderProgress(id); });
   };
   draw();
   clearInterval(renderProgress.timer);
-  timer = renderProgress.timer = setInterval(() => { if (!location.hash.includes(`/${id}`)) return clearInterval(timer); if ((Date.now() - t0) % 12000 < 1000) lineIdx++; draw(); }, 1000);
-  const es = new EventSource(`/api/sessions/${id}/events`);
+  timer = renderProgress.timer = setInterval(() => { if ((Date.now() - t0) % 12000 < 1000) lineIdx++; draw(); }, 1000);
+  es = new EventSource(`/api/sessions/${id}/events`);
   es.onmessage = (e) => {
+    if (!alive()) return;
     const ev = JSON.parse(e.data);
     if (ev.step === 'idle') { es.close(); clearInterval(timer); return get(`/api/sessions/${id}`).then((s) => (s.status === 'recommended' ? (location.hash = `results/${id}`) : interview(id))); }
     const prevStep = log.length ? log[log.length - 1].step : null;
     log.push(ev); if (ev.step !== prevStep) stepStart = Date.now(); draw();
-    if (ev.step === 'done') { es.close(); clearInterval(timer); setTimeout(() => (location.hash = `results/${id}`), 600); }
+    if (ev.step === 'done') { es.close(); clearInterval(timer); setTimeout(() => { if (gen === routeGen) location.hash = `results/${id}`; }, 600); }
     if (ev.step === 'error') { es.close(); clearInterval(timer); }
   };
-  es.onerror = () => { es.close(); setTimeout(() => get(`/api/sessions/${id}`).then((s) => (s.status === 'recommended' ? (location.hash = `results/${id}`) : s.running ? renderProgress(id) : null)), 2000); };
+  es.onerror = () => { es.close(); setTimeout(() => { if (!alive()) return; get(`/api/sessions/${id}`).then((s) => (s.status === 'recommended' ? (location.hash = `results/${id}`) : s.running ? renderProgress(id) : null)); }, 2000); };
 }
 
 // ---------- results ----------
@@ -549,10 +591,11 @@ async function results(id) {
   document.getElementById('slateChatBtn').onclick = () => { const el = document.getElementById('slateChat'); el.hidden = !el.hidden; if (!el.hidden) el.querySelector('textarea')?.focus(); };
   document.getElementById('copyMd').onclick = async () => { const t = await (await fetch(`/api/sessions/${id}/export`)).text(); try { await navigator.clipboard.writeText(t); toast('Copied the slate as text'); } catch { toast('Could not copy; use Download instead'); } };
   document.getElementById('printBtn').onclick = () => window.print();
-  document.getElementById('again').onclick = async () => {
+  const againBtn = document.getElementById('again');
+  againBtn.onclick = act(againBtn, async () => {
     for (const r of s.recommendations) if (!r.feedback) await post(`/api/recommendations/${r.id}/feedback`, { feedback: 'not_now' });
     await post(`/api/sessions/${id}/recommend`); renderProgress(id);
-  };
+  });
 }
 
 function pathStage(r, i, b, shelves, sessionId) {
@@ -602,6 +645,7 @@ function pickCard(r, shelves, sessionId, giftFor = null, inPath = false) {
       <p class="why">${f.why_now}</p>
       ${checkLine(f.check)}
       <dl class="facts">
+        ${glance(d, r)}
         <dt>Readers love</dt><dd>${f.what_readers_love}</dd>
         <dt>Readers complain</dt><dd>${f.what_readers_complain}</dd>
         <dt>Risk for you</dt><dd>${f.risk_for_you}</dd>
@@ -695,6 +739,19 @@ async function check(q = '') {
 function authorList(a) {
   return raw(h`<p class="prose" style="margin-top:8px">${a.note}</p><div class="authorlist">${(a.books || []).map((x) => raw(h`<div class="arow"><div><b>${x.title}</b> <span class="cap sec">${x.year || ''} · ${x.kind}</span><div style="font-size:16px;margin-top:2px">${x.why_for_you}</div>${x.caution ? raw(h`<div class="cap sec">Caution: ${x.caution}</div>`) : ''}</div><div class="fitnum"><span class="tabular">${x.fit}</span>%<a class="btn sm" href="#check/${encodeURIComponent(x.title)}">Check</a></div></div>`))}</div><p class="cap sec" style="margin-top:6px">Ranked ${when(a.at)}.</p>`);
 }
+// Romance, series and the rating at a glance: the questions readers ask first (from the review digest).
+const HEAT = { 'closed door': 'closed door', mild: 'mildly spicy', steamy: 'steamy', explicit: 'explicit' };
+function glance(d, b = {}) {
+  if (!d?.romance) return '';
+  const ro = d.romance;
+  const romance = ro.role === 'none' ? 'None to speak of' : [
+    { hint: 'A hint', subplot: 'A subplot', central: 'At the centre' }[ro.role] || ro.role,
+    ro.pairing, ro.tropes?.length ? ro.tropes.join(', ') : '', HEAT[ro.heat] || '',
+  ].filter(Boolean).join(' · ');
+  return raw(h`<dt>Romance</dt><dd>${romance}${ro.verdict ? raw(h`<div class="cap sec" style="margin-top:2px">${ro.verdict}</div>`) : ''}</dd>
+    ${d.series ? raw(h`<dt>Series</dt><dd>${d.series}</dd>`) : ''}
+    ${d.rating_explained ? raw(h`<dt>The rating</dt><dd>${b.rating ? `${Number(b.rating).toFixed(2)}: ` : ''}${d.rating_explained}</dd>`) : ''}`);
+}
 // The slate's second opinion: the same verdict the book page shows under "Should you read it?".
 function checkLine(c) {
   if (!c) return '';
@@ -778,7 +835,7 @@ async function book(id) {
     <div>
       <h1 style="font-family:var(--reading);font-size:32px">${b.title}</h1>
       <div class="by" style="font-size:17px">${b.author} · ${b.year || ''}${b.pages ? ` · ${b.pages} pages` : ''}${b.language ? ` · ${b.language}` : ''}</div>
-      <div class="row" style="margin-top:8px">${rating(b.rating, b.ratings_count)}${b.rating_dist ? raw(h`<span class="dist" title="Rating spread, 1 to 5 stars">${b.rating_dist.map((n) => raw(h`<span style="height:${Math.max(2, Math.round((n / Math.max(...b.rating_dist)) * 28))}px" title="${Math.round((n / total) * 100)}%"></span>`))}</span>`) : ''}</div>
+      <div class="row" style="margin-top:8px">${rating(b.rating, b.ratings_count)}${b.rating_dist ? raw(h`<span class="dist" title="Rating spread, 1 to 5 stars">${b.rating_dist.map((n) => raw(h`<span style="height:${Math.max(2, Math.round((n / Math.max(1, ...b.rating_dist)) * 28))}px" title="${Math.round((n / Math.max(1, total)) * 100)}%"></span>`))}</span>`) : ''}</div>
       <div class="row" style="gap:6px;margin-top:10px">${b.genres.slice(0, 6).map((g) => raw(h`<span class="chip">${g}</span>`))}</div>
       ${b.extra?.awards?.length ? raw(h`<p class="cap sec" style="margin-top:10px">${b.extra.awards.join(' · ')}</p>`) : ''}
       ${b.extra?.lubimyczytac ? raw(h`<p class="cap sec" style="margin-top:6px">Polish edition “${b.extra.lubimyczytac.polishTitle}”: ${b.extra.lubimyczytac.rating10}/10 from ${fmtN(b.extra.lubimyczytac.ratingsCount)} readers on lubimyczytac.pl</p>`) : ''}
@@ -802,7 +859,7 @@ async function book(id) {
   <section class="section"><div class="row between"><h2>More by ${b.author || 'this author'}</h2><button class="btn sm ${b.extra?.author_next ? '' : 'primary'}" id="authorBtn">${b.extra?.author_next ? 'Rank again' : 'Which one next?'}</button></div>
     <div id="authorOut">${b.extra?.author_next ? authorList(b.extra.author_next) : raw(h`<p class="sec" style="margin-top:8px;max-width:62ch">Ranks the author's other books for you, from your profile and how this one went. Unverified titles; check any with the search page.</p>`)}</div></section>
   <section class="section"><h2>What real readers say</h2>
-    ${d ? raw(h`<p style="margin-top:12px;font-size:20px" class="prose">${d.one_line}</p><dl class="facts"><dt>Praise</dt><dd>${d.praise.map((p) => raw(h`${p}<br>`))}</dd><dt>Complaints</dt><dd>${d.complaints.map((p) => raw(h`${p}<br>`))}</dd><dt>Who loves it</dt><dd>${d.who_loves_it}</dd><dt>Who should skip</dt><dd>${d.who_should_skip}</dd><dt>First 100 pages</dt><dd>${d.first_100_pages}</dd><dt>Content notes</dt><dd>${d.content_notes.join(', ') || 'none noted'}</dd><dt>Appeal</dt><dd><span class="row" style="gap:6px">${[d.appeal.pace, ...d.appeal.tone, ...d.appeal.style, ...d.appeal.moods].filter(Boolean).slice(0, 10).map((t) => raw(h`<span class="chip">${t}</span>`))}</span></dd></dl>${d.quotes.map((q) => raw(h`<div class="quote">“${q}”</div>`))}`) : raw(h`<p class="sec" style="margin-top:8px">No digest yet.</p><p style="margin-top:12px"><button class="btn" id="digest">Read the reviews now</button></p>`)}
+    ${d ? raw(h`<p style="margin-top:12px;font-size:20px" class="prose">${d.one_line}</p><dl class="facts">${glance(d, b)}<dt>Praise</dt><dd>${d.praise.map((p) => raw(h`${p}<br>`))}</dd><dt>Complaints</dt><dd>${d.complaints.map((p) => raw(h`${p}<br>`))}</dd><dt>Who loves it</dt><dd>${d.who_loves_it}</dd><dt>Who should skip</dt><dd>${d.who_should_skip}</dd><dt>First 100 pages</dt><dd>${d.first_100_pages}</dd><dt>Content notes</dt><dd>${d.content_notes.join(', ') || 'none noted'}</dd><dt>Appeal</dt><dd><span class="row" style="gap:6px">${[d.appeal.pace, ...d.appeal.tone, ...d.appeal.style, ...d.appeal.moods].filter(Boolean).slice(0, 10).map((t) => raw(h`<span class="chip">${t}</span>`))}</span></dd></dl>${d.quotes.map((q) => raw(h`<div class="quote">“${q}”</div>`))}`) : raw(h`<p class="sec" style="margin-top:8px">No digest yet.</p><p style="margin-top:12px"><button class="btn" id="digest">Read the reviews now</button></p>`)}
     <details><summary>${b.reviews.length} real reviews, most liked first</summary>${b.reviews.slice(0, 15).map((r) => raw(h`<div class="review"><div class="m">${r.rating ? '★ ' + r.rating : ''} · ${r.likes} likes · ${r.createdAt || ''}${r.source === 'lubimyczytac' ? ' · lubimyczytac.pl' : ''}</div>${r.text.slice(0, 1200)}</div>`))}</details>
   </section>`;
   app.querySelectorAll('[data-add]').forEach((btn) => btn.onclick = async () => {
@@ -813,7 +870,7 @@ async function book(id) {
   document.getElementById('debFinished').onclick = () => goDebrief(b.id, b.rec?.id, 'finished');
   document.getElementById('debDropped').onclick = () => goDebrief(b.id, b.rec?.id, 'dropped');
   const da = document.getElementById('debAgain'); if (da) da.onclick = () => goDebrief(b.id, b.rec?.id, b.debrief.outcome);
-  const dg = document.getElementById('digest'); if (dg) dg.onclick = async () => { dg.disabled = true; dg.textContent = 'Reading…'; await post(`/api/books/${id}/digest`); book(id); };
+  const dg = document.getElementById('digest'); if (dg) dg.onclick = act(dg, async () => { dg.textContent = 'Reading…'; try { await post(`/api/books/${id}/digest`); } catch (e) { dg.textContent = 'Read the reviews now'; throw e; } book(id); });
   document.getElementById('pageSave').onclick = async () => {
     const page = Number(document.getElementById('pageIn').value) || 0;
     let item = (await get(`/api/shelves`)).find((x) => x.name === 'Reading now');
@@ -850,7 +907,7 @@ async function shelves(activeId) {
           <label class="lbl">Note: why it is here, or for which mood</label><input type="text" class="note" value="${it.note || ''}" placeholder="for a rainy weekend; recommended for the sit-with-it mood">
           ${verdictShelf ? raw(h`
             <label class="lbl">${active.name === 'Finished' ? 'Your rating' : 'How far did you get, and why did you stop?'}</label>
-            ${active.name === 'Finished' ? raw(h`<div class="rating-input" data-r="${it.my_rating || 0}">${[1, 2, 3, 4, 5].map((n) => raw(h`<span class="${n <= (it.my_rating || 0) ? 'on' : ''}" data-n="${n}">★</span>`))}</div>`) : ''}
+            ${active.name === 'Finished' ? raw(h`<div class="rating-input" role="radiogroup" aria-label="Your rating" data-r="${it.my_rating || 0}">${[1, 2, 3, 4, 5].map((n) => raw(h`<span class="${n <= (it.my_rating || 0) ? 'on' : ''}" data-n="${n}" role="radio" tabindex="0" aria-label="${n} of 5 stars">★</span>`))}</div>`) : ''}
             <textarea class="verdict" placeholder="${active.name === 'Finished' ? 'What worked, what did not, would you reread? This feeds your Reader DNA.' : 'For example: 80 pages; nothing happened and I disliked the narrator.'}">${it.my_verdict?.text || ''}</textarea>`) : ''}
           <div class="row" style="margin-top:12px"><button class="btn sm primary save">Save</button>
             ${verdictShelf ? raw(h`<button class="btn sm deb" data-book="${it.book_id}" data-outcome="${active.name === 'Finished' ? 'finished' : 'dropped'}">${it.my_verdict?.debrief_id ? 'Debrief again' : 'Tell me about it'}</button>`) : active.name === 'Reading now' ? raw(h`<button class="btn sm deb" data-book="${it.book_id}" data-outcome="finished">Finished it</button><button class="btn sm ghost deb" data-book="${it.book_id}" data-outcome="dropped">Dropped it</button>`) : ''}
@@ -864,10 +921,14 @@ async function shelves(activeId) {
   const q = document.getElementById('q');
   q.onkeydown = async (e) => {
     if (e.key !== 'Enter') return;
+    if (!q.value.trim() || q.dataset.busy) return;
     const box = document.getElementById('sres'); box.innerHTML = '<p class="cap sec" style="margin-top:12px">Searching…</p>';
-    const res = await get(`/api/books/search?q=${encodeURIComponent(q.value)}`);
+    let res; q.dataset.busy = '1';
+    try { res = await get(`/api/books/search?q=${encodeURIComponent(q.value)}`); }
+    catch (err) { box.innerHTML = h`<p class="cap" style="margin-top:12px;color:var(--danger)">Search failed: ${err.message}</p>`; return; }
+    finally { delete q.dataset.busy; }
     box.innerHTML = res.map((r) => h`<div class="runner">${coverImg(r.cover, r.title)}<div><div class="ttl">${r.title}</div><div class="by">${r.author} · ${r.year || ''} ${rating(r.rating, r.ratingsCount)}</div><p style="margin-top:8px"><button class="btn sm" data-gid="${r.goodreadsId}">Add to ${active.name}</button></p></div></div>`).join('') || '<p class="cap sec" style="margin-top:12px">Nothing found.</p>';
-    box.querySelectorAll('[data-gid]').forEach((b) => b.onclick = async () => { b.disabled = true; b.textContent = 'Fetching…'; const bk = await post('/api/books/import', { goodreadsId: b.dataset.gid }); await post(`/api/shelves/${active.id}/items`, { bookId: bk.id }); shelves(active.id); });
+    box.querySelectorAll('[data-gid]').forEach((b) => b.onclick = act(b, async () => { b.textContent = 'Fetching…'; try { const bk = await post('/api/books/import', { goodreadsId: b.dataset.gid }); await post(`/api/shelves/${active.id}/items`, { bookId: bk.id }); } catch (e) { b.textContent = `Add to ${active.name}`; throw e; } shelves(active.id); }));
   };
   app.querySelectorAll('.item').forEach((el) => {
     const id = el.dataset.item;
@@ -943,7 +1004,7 @@ function moodChart(all) {
   if (!all.length) return raw(`<div class="empty" style="margin-top:12px">${LAMP}<div class="big">No check-ins yet</div><div>Your mood, need, effort and light-dark answers land here after each interview.</div></div>`);
   const n = Math.min(all.length, window.innerWidth < 640 ? 8 : 16);
   const rows = all.slice(-n);
-  const tip = (m) => esc(`${when(m.at)} · ${SHORT_MOOD[m.mood_id] || m.mood || ''} · ${m.need || ''}${m.demand ? ` · effort ${m.demand}/5` : ''}${m.tone ? ` · dark ${m.tone}/5` : ''}${m.safe ? ` · disturbing ${m.safe}/5` : ''}${m.life?.length && m.life[0] !== 'Nothing special' ? ` · ${m.life.join(', ')}` : ''}`);
+  const tip = (m) => (`${when(m.at)} · ${SHORT_MOOD[m.mood_id] || m.mood || ''} · ${m.need || ''}${m.demand ? ` · effort ${m.demand}/5` : ''}${m.tone ? ` · dark ${m.tone}/5` : ''}${m.safe ? ` · disturbing ${m.safe}/5` : ''}${m.life?.length && m.life[0] !== 'Nothing special' ? ` · ${m.life.join(', ')}` : ''}`);
   const cols = `--n:${n}`;
   const scale = ([key, name, lo, hi]) => {
     const pts = rows.map((m, i) => (m[key] ? [i, m[key]] : null)).filter(Boolean);
@@ -1003,7 +1064,14 @@ async function history() {
   <section class="section"><h2>Add one book</h2><div class="row" style="margin-top:12px"><input type="text" id="mt" placeholder="Title" style="flex:2;min-width:200px"><input type="text" id="ma" placeholder="Author" style="flex:1;min-width:160px"><select id="mr" style="width:auto"><option value="">Rating</option>${[5, 4, 3, 2, 1].map((n) => raw(`<option>${n}</option>`))}</select><select id="ms" style="width:auto"><option value="read">Read</option><option value="dnf">Did not finish</option></select><button class="btn" id="madd">Add</button></div><input type="text" id="mrev" placeholder="A line on what you thought (optional, valuable)" style="margin-top:8px"></section>
   <section class="section"><h2>${rows.length} ${rows.length === 1 ? 'book' : 'books'}</h2>${rows.length ? raw(h`<div class="tablewrap" style="margin-top:12px"><table><tr><th>Title</th><th>Author</th><th>Rating</th><th>Status</th><th>Read</th><th>Source</th><th></th></tr>${rows.slice(0, 400).map((r) => raw(h`<tr><td>${r.book_id ? raw(h`<a href="#book/${r.book_id}" style="color:inherit"><b>${r.title}</b></a>`) : raw(h`<b>${r.title}</b>`)}${r.my_review ? raw(h`<div class="cap sec">${r.my_review.slice(0, 160)}</div>`) : ''}</td><td>${r.author || ''}</td><td>${r.my_rating ? raw(h`<span style="color:var(--amber)">${'★'.repeat(r.my_rating)}</span>`) : ''}</td><td>${r.status}</td><td>${r.date_read ? String(r.date_read).slice(0, 10) : ''}</td><td class="sec">${r.source.replace('_csv', '')}</td><td><a href="#" data-delh="${r.id}" title="Delete">✕</a></td></tr>`))}</table></div>${rows.length > 400 ? raw('<p class="cap sec">Showing the first 400.</p>') : ''}`) : raw(h`<div class="empty" style="margin-top:12px">${raw(STACK)}<div class="big">No history yet</div><div>Import a Goodreads or StoryGraph export above, or add books one by one.</div></div>`)}</section>`;
   const es = document.getElementById('enrichStatus');
-  const pollEnrich = async () => { const j = await get('/api/history/enrich'); if (!j.total && !j.running) return; es.innerHTML = h`${j.running ? raw('<span class="spinner"></span> ') : ''}${j.done} of ${j.total} · ${j.log.slice(-3).join(' · ')}`; if (j.running) setTimeout(pollEnrich, 2500); else history(); };
+  // One poller per page render; a newer render or another page stops the older one.
+  const my = ++enrichPoll, pollGen = routeGen;
+  const pollEnrich = async () => {
+    if (my !== enrichPoll || pollGen !== routeGen) return;
+    const j = await get('/api/history/enrich'); if (!j.total && !j.running) return;
+    es.innerHTML = h`${j.running ? raw('<span class="spinner"></span> ') : ''}${j.done} of ${j.total} · ${j.log.slice(-3).join(' · ')}`;
+    if (j.running) setTimeout(pollEnrich, 2500); else if (my === enrichPoll) history();
+  };
   document.getElementById('enrich').onclick = async (e) => { e.target.disabled = true; await post('/api/history/enrich', { limit: 20 }); pollEnrich(); };
   get('/api/history/enrich').then((j) => { if (j.running) { document.getElementById('enrich').disabled = true; pollEnrich(); } });
   document.getElementById('imp').onclick = async () => {
@@ -1059,6 +1127,7 @@ async function settings() {
       <label class="lbl"><input type="checkbox" id="web" ${s.candidates_web ? 'checked' : ''}> Let the candidate step use web search (helps with very recent and Polish titles; slower)</label>
       <label class="lbl"><input type="checkbox" id="chatWeb" ${s.chat_web ? 'checked' : ''}> Let conversations about a book look things up on the web (editions, narrators, sequels; a little slower)</label>
       <label class="lbl"><input type="checkbox" id="autoReflect" ${s.auto_reflect ? 'checked' : ''}> Rebuild Reader DNA automatically once a week when there is new evidence</label>
+      <label class="lbl"><input type="checkbox" id="verifyPicks" ${s.verify_picks ? 'checked' : ''}> Second look: ask "Should I read this?" about every pick before showing it (stricter, adds a few minutes)</label>
       <label class="lbl">Adaptive follow-up questions per session (0 to 4)</label><input type="number" id="adaptive" min="0" max="4" value="${s.adaptive_count}" style="width:90px">
       <label class="lbl">Hardcover.app API token (optional; adds crowd moods and content warnings from a sanctioned source). Currently: ${s.hardcover_token || 'not set'}</label><input type="text" id="hc" placeholder="paste token, or leave empty">
       <p class="cap sec" style="margin-top:12px">Polish: when a session asks for Polish-language books, lubimyczytac.pl ratings (1 to 10) and Polish reviews are pulled too.</p>
@@ -1079,13 +1148,13 @@ async function settings() {
     if (replace && !confirm('Replace everything in the database with the file? Existing data will be deleted.')) return;
     try { const data = JSON.parse(await f.text()); const r = await post('/api/ops/import', { data, replace }); toast('Imported: ' + Object.entries(r.imported).map(([k, v]) => `${k} ${v}`).join(', ')); } catch (e) { toast(e.message); }
   };
-  document.getElementById('health').onclick = async (e) => { e.target.disabled = true; e.target.textContent = 'Checking…'; await post('/api/ops/health'); settings(); };
+  const hb = document.getElementById('health'); hb.onclick = act(hb, async () => { hb.textContent = 'Checking…'; try { await post('/api/ops/health'); } finally { hb.textContent = 'Check now'; } settings(); });
   const lanBox = document.getElementById('lan'); const lanUrl = document.getElementById('lanUrl');
   const showLan = (r) => { lanUrl.innerHTML = r.url ? h`On this device the link is: <code>${r.url}</code>. Open it once on your phone, then use the address without the token. Restart the app for the change to take effect.` : ''; };
   if (ops.lan.enabled) get('/api/ops/lan-url').then(showLan);
   lanBox.onchange = async () => { const r = await post('/api/ops/lan', { enabled: lanBox.checked }); showLan(r); toast(lanBox.checked ? 'Home-network mode on after restart' : 'Home-network mode off after restart'); };
   document.getElementById('save').onclick = async () => {
-    const body = { candidates_web: document.getElementById('web').checked, adaptive_count: document.getElementById('adaptive').value, chat_web: document.getElementById('chatWeb').checked, auto_reflect: document.getElementById('autoReflect').checked };
+    const body = { candidates_web: document.getElementById('web').checked, adaptive_count: document.getElementById('adaptive').value, chat_web: document.getElementById('chatWeb').checked, auto_reflect: document.getElementById('autoReflect').checked, verify_picks: document.getElementById('verifyPicks').checked };
     const hc = document.getElementById('hc').value.trim(); if (hc) body.hardcover_token = hc;
     app.querySelectorAll('[data-tier]').forEach((el) => (body['tier_' + el.dataset.tier] = el.value));
     app.querySelectorAll('[data-model]').forEach((el) => (body['model_' + el.dataset.model] = el.value.trim()));

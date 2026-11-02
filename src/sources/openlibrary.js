@@ -4,7 +4,7 @@ const FIELDS = 'key,title,author_name,first_publish_year,ratings_average,ratings
 
 export async function searchOpenLibrary(q, { limit = 5 } = {}) {
   const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(q)}&fields=${FIELDS}&limit=${limit}`;
-  const r = await fetch(url, { headers: H });
+  const r = await fetch(url, { headers: H, signal: AbortSignal.timeout(15000) });
   if (!r.ok) throw new Error(`openlibrary ${r.status}`);
   const j = await r.json();
   return (j.docs || []).map((d) => ({
@@ -25,7 +25,8 @@ export async function searchOpenLibrary(q, { limit = 5 } = {}) {
 }
 
 export async function fetchOpenLibraryWork(olKey) {
-  const r = await fetch(`https://openlibrary.org${olKey}.json`, { headers: H });
+  if (!/^\/works\/OL\d+W$/.test(olKey || '')) throw new Error('bad Open Library key');
+  const r = await fetch(`https://openlibrary.org${olKey}.json`, { headers: H, signal: AbortSignal.timeout(15000) });
   if (!r.ok) throw new Error(`openlibrary work ${r.status}`);
   const w = await r.json();
   const desc = typeof w.description === 'string' ? w.description : w.description?.value || '';

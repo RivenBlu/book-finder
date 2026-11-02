@@ -1,7 +1,7 @@
 // Google Books: optional. Works without a key at a low quota (429s happen); set a key in Settings for reliability.
 export async function searchGoogleBooks(q, { key = '', limit = 3 } = {}) {
   const url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(q)}&maxResults=${limit}${key ? `&key=${key}` : ''}`;
-  const r = await fetch(url);
+  const r = await fetch(url, { signal: AbortSignal.timeout(15000) });
   if (!r.ok) return [];
   const j = await r.json();
   return (j.items || []).map((it) => {

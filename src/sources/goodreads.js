@@ -19,7 +19,7 @@ export function decodeHtml(s = '') {
 async function getHtml(url, { tries = 4 } = {}) {
   let last = '';
   for (let i = 0; i < tries; i++) {
-    const r = await fetch(url, { headers: H });
+    const r = await fetch(url, { headers: H, signal: AbortSignal.timeout(20000) });
     if (r.status === 429 || r.status === 503) { await sleep(3000 * (i + 1)); last = `goodreads ${r.status}`; continue; }
     if (!r.ok) throw new Error(`goodreads ${r.status}`);
     const html = await r.text();
@@ -81,7 +81,7 @@ export async function parseGoodreadsBook(html, goodreadsId, { url = `https://www
       rating: rv.rating ?? null,
       text: decodeHtml(rv.text).slice(0, 2500),
       likes: rv.likeCount ?? 0,
-      createdAt: rv.createdAt ? new Date(rv.createdAt).toISOString().slice(0, 10) : null,
+      createdAt: isoDay(rv.createdAt),
       spoiler: rv.spoilerStatus || false,
       shelves: (rv.shelving?.taggings || []).map((t) => t?.tag?.name).filter(Boolean).slice(0, 8),
     }))
@@ -120,8 +120,8 @@ export async function parseGoodreadsBook(html, goodreadsId, { url = `https://www
     genres: (book.bookGenres || []).map((g) => g?.genre?.name).filter(Boolean),
     pages: book.details?.numPages ?? null,
     language: book.details?.language?.name ?? null,
-    publishedAt: book.details?.publicationTime ? new Date(book.details.publicationTime).getFullYear() : null,
-    originalYear: work?.details?.publicationTime ? new Date(work.details.publicationTime).getFullYear() : null,
+    publishedAt: yearOf(book.details?.publicationTime),
+    originalYear: yearOf(work?.details?.publicationTime),
     series: (book.bookSeries || []).map((s) => ({ title: ap[s?.series?.__ref]?.title || null, position: s?.userPosition || null })),
     awards: (work?.details?.awardsWon || []).map((a) => `${a.name}${a.category ? ' (' + a.category + ')' : ''}`).slice(0, 8),
     rating: stats.averageRating ?? null,
@@ -132,3 +132,7 @@ export async function parseGoodreadsBook(html, goodreadsId, { url = `https://www
     fetchedAt: new Date().toISOString(),
   };
 }
+
+// Dates from the page can be missing or odd; a bad one must not abort the whole book.
+function isoDay(v) { if (!v) return null; const d = new Date(v); return isNaN(d) ? null : d.toISOString().slice(0, 10); }
+function yearOf(v) { if (!v) return null; const y = new Date(v).getFullYear(); return Number.isFinite(y) ? y : null; }

@@ -3,7 +3,7 @@ const H = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) book-finder
 const strip = (s = '') => s.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/\s+/g, ' ').trim();
 
 export async function searchLubimyczytac(phrase, { limit = 8 } = {}) {
-  const r = await fetch(`https://lubimyczytac.pl/szukaj/ksiazki?phrase=${encodeURIComponent(phrase)}`, { headers: H });
+  const r = await fetch(`https://lubimyczytac.pl/szukaj/ksiazki?phrase=${encodeURIComponent(phrase)}`, { headers: H, signal: AbortSignal.timeout(15000) });
   if (!r.ok) throw new Error(`lubimyczytac search ${r.status}`);
   return parseLubimyczytacSearch(await r.text(), { limit });
 }
@@ -22,7 +22,7 @@ export function parseLubimyczytacSearch(html, { limit = 8 } = {}) {
 }
 
 export async function fetchLubimyczytacBook(url) {
-  const r = await fetch(url, { headers: H });
+  const r = await fetch(url, { headers: H, signal: AbortSignal.timeout(15000) });
   if (!r.ok) throw new Error(`lubimyczytac book ${r.status}`);
   return parseLubimyczytacBook(await r.text(), url);
 }

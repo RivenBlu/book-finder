@@ -94,12 +94,12 @@ export async function chat({ bookId, sessionId, message, page = null, onEvent })
 export async function verdictFor(bookId, { onEvent, sessionId = null } = {}) {
   let book = DB.getBook(bookId);
   if (!book) throw new Error('no such book');
-  if (!book.review_digest) { onEvent?.({ step: 'digest', msg: 'Reading the real reviews...' }); await digestBook(book); book = DB.getBook(bookId); }
+  if (DB.digestStale(book)) { onEvent?.({ step: 'digest', msg: 'Reading the real reviews...' }); await digestBook(book); book = DB.getBook(bookId); }
   onEvent?.({ step: 'verdict', msg: 'Judging it against your profile...' });
   const ctx = fullContext(null);
   const last = sessionId ? DB.getSession(sessionId) : DB.listSessions(5).find((s) => !['onboarding', 'gift'].includes(s.mode) && s.status !== 'closed');
   const recentCheckin = last && (sessionId || Date.now() - Date.parse(last.started_at) < 7 * 864e5)
-    ? { date: last.started_at.slice(0, 10), answers: answersDigest(last.id).filter((a) => a.layer !== 'onboarding'), must_haves: last.brief?.must_haves || [] }
+    ? { date: last.started_at.slice(0, 10), answers: answersDigest(last.id).filter((a) => a.layer !== 'onboarding'), must_haves: last.brief?.must_haves || [], hard_excludes: last.brief?.hard_excludes || [], constraints: last.brief?.constraints || null }
     : null;
   const prompt = `READER (JSON):\n${JSON.stringify({ ...ctx, recent_moods: DB.moodLog(6), most_recent_checkin: recentCheckin }, null, 1)}\n\nBOOK (JSON):\n${JSON.stringify(bookMaterial(book, { reviews: 24 }), null, 1)}\n\nShould this reader read this book?`;
   const { data } = await ask({ system: VERDICT_SYSTEM, prompt, schema: VERDICT_SCHEMA, tier: DB.getSetting('tier_verdict', 'best'), effort: 'high' });

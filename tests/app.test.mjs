@@ -16,7 +16,7 @@ const DB = await import('../src/db.js');
 const { recordOutcome } = await import('../src/pipeline/insights.js');
 const { sayVsDo, fingerprint } = await import('../src/pipeline/evidence.js');
 const { exportAll, importAll } = await import('../src/ops.js');
-const { titleMatch, applySecondOpinion } = await import('../src/pipeline/recommend.js');
+const { titleMatch, applySecondOpinion, isKnown } = await import('../src/pipeline/recommend.js');
 
 const fx = (f) => join(DIR, 'fixtures', f);
 
@@ -214,5 +214,28 @@ test('second opinion: only yes/probably stay picks, must-have misses become exce
   assert.deepEqual(out.exceptions.map((e) => [e.candidate_index, e.missing]), [[3, 'romance at the centre']]);
   assert.deepEqual(out.runners_up.map((r) => r.candidate_index), [2]);
   assert.deepEqual(out.dropped.map((d) => d.candidate_index).sort(), [1, 5]);
-  assert.match(out.note_to_reader, /B, C, D/);
+  assert.match(out.note_to_reader, /took out B, C;/);
+  assert.match(out.note_to_reader, /D misses one of your must-haves/);
+});
+
+test('known books are caught by id, Goodreads id or close title, so they are never recommended again', () => {
+  const known = { ids: new Set([7]), gids: new Set(['123']), keys: [{ title: 'The City of Brass', author: 'S. A. Chakraborty' }] };
+  assert.equal(isKnown({ id: 7, title: 'x' }, known), true);
+  assert.equal(isKnown({ id: 9, goodreads_id: 123, title: 'x' }, known), true);
+  assert.equal(isKnown({ id: 9, title: 'The City of Brass (The Daevabad Trilogy, #1)', author: 'S.A. Chakraborty' }, known), true);
+  assert.equal(isKnown({ id: 9, title: 'The City of Brass', author: 'Someone Else' }, known), false);
+  assert.equal(isKnown({ id: 9, title: 'Uprooted', author: 'Naomi Novik' }, known), false);
+});
+
+test('gift slates stay out of the owner evidence; replaced slates stay as evidence but leave the page', () => {
+  const g = DB.createSession('gift'); const q = DB.createSession('quick');
+  const b1 = DB.upsertBook({ goodreadsId: '900001', title: 'Gift Book', author: 'A B', genres: [], reviews: [] });
+  const b2 = DB.upsertBook({ goodreadsId: '900002', title: 'Own Book', author: 'C D', genres: [], reviews: [] });
+  DB.addRecommendation({ sessionId: g, bookId: b1, rank: 1, slot: 'x', fit: { kind: 'pick' } });
+  DB.addRecommendation({ sessionId: q, bookId: b2, rank: 1, slot: 'x', fit: { kind: 'pick' } });
+  const past = DB.pastRecommendations(100).map((r) => r.book_id);
+  assert.ok(past.includes(b2) && !past.includes(b1));
+  DB.db.prepare('UPDATE recommendations SET superseded_at = ? WHERE session_id = ?').run(DB.now(), q);
+  assert.equal(DB.getRecommendations(q).length, 0);
+  assert.ok(DB.knownBooks().ids.has(b2));
 });

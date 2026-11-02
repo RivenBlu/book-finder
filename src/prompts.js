@@ -166,9 +166,22 @@ export const DIGEST_SCHEMA = {
     content_notes: { type: 'array', items: { type: 'string' }, description: 'Content warnings mentioned by reviewers or evident from description.' },
     quotes: { type: 'array', items: { type: 'string' }, maxItems: 3, description: 'Up to 3 short verbatim reader quotes (under 30 words each) that capture the split.' },
     polarising: { type: 'boolean' },
+    romance: {
+      type: 'object',
+      properties: {
+        role: { type: 'string', enum: ['none', 'hint', 'subplot', 'central'], description: 'How much of the book the romance is, from description and reviews.' },
+        pairing: { type: 'string', description: 'Who, spoiler-free, by role or first name as the blurb gives them (e.g. "the thief and the prince she is sent to spy on"). Empty if none.' },
+        tropes: { type: 'array', items: { type: 'string' }, maxItems: 4, description: 'e.g. enemies to lovers, slow burn, forced proximity, love triangle, insta-love. Only what reviewers name.' },
+        heat: { type: 'string', enum: ['none', 'closed door', 'mild', 'steamy', 'explicit', 'unknown'] },
+        verdict: { type: 'string', description: 'One short sentence on what readers say about the romance (chemistry, pacing, triangle complaints). Empty if none.' },
+      },
+      required: ['role', 'pairing', 'tropes', 'heat', 'verdict'], additionalProperties: false,
+    },
+    series: { type: 'string', description: 'Standalone or series, in a few words: "standalone", "book 1 of a finished trilogy", "book 2: read book 1 first", "duology, ends on a cliffhanger". Use the series data given and what reviewers say; say "series status unclear" rather than guess.' },
+    rating_explained: { type: 'string', description: 'One sentence: why the average rating is what it is, from the spread and the reviews (e.g. "the 3.6 is pulled down by readers who wanted more romance; the spread is wide").' },
     audiobook: { type: 'string', description: 'What reviewers say about the audiobook and its narrator(s): names if given, pacing, accents, whether the book suits listening (footnotes, maps, many similar names hurt). Empty string if reviews say nothing.' },
   },
-  required: ['one_line', 'appeal', 'praise', 'complaints', 'who_loves_it', 'who_should_skip', 'first_100_pages', 'content_notes', 'quotes', 'polarising', 'audiobook'],
+  required: ['one_line', 'appeal', 'praise', 'complaints', 'who_loves_it', 'who_should_skip', 'first_100_pages', 'content_notes', 'quotes', 'polarising', 'romance', 'series', 'rating_explained', 'audiobook'],
   additionalProperties: false,
 };
 

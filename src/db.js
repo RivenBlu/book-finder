@@ -181,6 +181,11 @@ addColumn('sessions', 'anchors', 'TEXT');        // JSON: anchor-disambiguation 
 addColumn('shelf_items', 'page', 'INTEGER');     // reading progress for "Reading now"
 addColumn('books', 'digested_at', 'TEXT');       // when the review digest was written (stale digests are refreshed)
 addColumn('recommendations', 'outcome', 'TEXT'); // JSON: {outcome, page, reason, rating, at} from the loop-closer screen
+addColumn('recommendations', 'superseded_at', 'TEXT'); // set when "Same answers, different picks" replaces a slate; the rows stay as evidence
+// Authorless history rows: NULL never collides in UNIQUE(title, author, source), so re-imports duplicated them.
+db.exec("UPDATE OR IGNORE reading_history SET author = '' WHERE author IS NULL");
+// A run that was cut off (app closed mid-research) must not leave its session stuck as 'researching'.
+db.exec("UPDATE sessions SET status = CASE WHEN EXISTS (SELECT 1 FROM recommendations r WHERE r.session_id = sessions.id) THEN 'recommended' ELSE 'interview' END WHERE status = 'researching'");
 
 const SYSTEM_SHELVES = [
   ['Reading now', 'What I am reading at the moment', 1],
@@ -306,6 +311,7 @@ export function setReviewDigest(bookId, digest) {
 }
 export function digestStale(book) {
   if (!book.review_digest) return true;
+  if (!book.review_digest.romance) return true; // digests from before romance/series/rating fields were added
   const age = Date.now() - Date.parse(book.digested_at || book.fetched_at || 0);
   const recent = book.year && book.year >= new Date().getFullYear() - 1;
   return age > (recent ? 90 : 730) * 864e5;
@@ -325,7 +331,7 @@ export function addRecommendation({ sessionId, bookId, rank, slot, fit }) {
   return Number(r.lastInsertRowid);
 }
 export function getRecommendations(sessionId) {
-  return db.prepare('SELECT r.*, b.title, b.author, b.year, b.pages, b.genres, b.cover, b.url, b.rating, b.ratings_count, b.description, b.review_digest, b.language FROM recommendations r JOIN books b ON b.id = r.book_id WHERE r.session_id = ? ORDER BY r.rank')
+  return db.prepare('SELECT r.*, b.title, b.author, b.year, b.pages, b.genres, b.cover, b.url, b.rating, b.ratings_count, b.description, b.review_digest, b.language FROM recommendations r JOIN books b ON b.id = r.book_id WHERE r.session_id = ? AND r.superseded_at IS NULL ORDER BY r.rank')
     .all(sessionId).map((r) => ({ ...r, fit: P(r.fit), genres: P(r.genres) || [], review_digest: P(r.review_digest) }));
 }
 export function setRecommendationFeedback(id, feedback, note = null, outcome = null) {
@@ -348,7 +354,7 @@ export function listSessionsWithPicks(limit = 100) {
     .map((s) => ({ ...s, brief: P(s.brief), progress: undefined, adaptive: undefined, anchors: undefined }));
   const picksStmt = db.prepare(`SELECT r.id, r.book_id, r.rank, r.slot, r.feedback, r.feedback_note, r.outcome, r.fit, b.title, b.author, b.cover, b.pages, b.year,
                                        (SELECT d.id FROM debriefs d WHERE d.book_id = r.book_id ORDER BY d.id DESC LIMIT 1) AS debrief_id
-                                FROM recommendations r JOIN books b ON b.id = r.book_id WHERE r.session_id = ? ORDER BY r.rank`);
+                                FROM recommendations r JOIN books b ON b.id = r.book_id WHERE r.session_id = ? AND r.superseded_at IS NULL ORDER BY r.rank`);
   return sessions.map((s) => ({
     ...s,
     reader_now: s.brief?.reader_now || s.summary || null, brief: undefined,
@@ -363,8 +369,19 @@ export function outcomeRows() {
                      WHERE r.slot NOT IN ('runner_up', 'exception') ORDER BY r.id`).all()
     .map((r) => ({ ...r, fit: P(r.fit), outcome: P(r.outcome), review_digest: P(r.review_digest) }));
 }
+// The owner's own past recommendations (gift slates are about someone else), including replaced slates.
 export function pastRecommendations(limit = 60) {
-  return db.prepare('SELECT r.book_id, r.feedback, r.feedback_note, r.created_at, b.title, b.author FROM recommendations r JOIN books b ON b.id = r.book_id ORDER BY r.id DESC LIMIT ?').all(limit);
+  return db.prepare("SELECT r.book_id, r.feedback, r.feedback_note, r.created_at, b.title, b.author, b.goodreads_id FROM recommendations r JOIN books b ON b.id = r.book_id JOIN sessions s ON s.id = r.session_id WHERE s.mode != 'gift' ORDER BY r.id DESC LIMIT ?").all(limit);
+}
+// Everything the owner has read, shelved (other than Someday/Maybe) or been recommended: ids and title keys,
+// so the pipeline can drop a candidate in code even when the model forgot the exclusion list.
+export function knownBooks() {
+  const ids = new Set(), gids = new Set(), keys = [];
+  const add = (r) => { if (r.book_id) ids.add(r.book_id); if (r.goodreads_id) gids.add(String(r.goodreads_id)); if (r.title) keys.push({ title: r.title, author: r.author || '' }); };
+  db.prepare("SELECT h.book_id, h.title, h.author, b.goodreads_id FROM reading_history h LEFT JOIN books b ON b.id = h.book_id WHERE h.status IS NULL OR h.status != 'to-read'").all().forEach(add);
+  db.prepare("SELECT i.book_id, b.title, b.author, b.goodreads_id FROM shelf_items i JOIN shelves s ON s.id = i.shelf_id JOIN books b ON b.id = i.book_id WHERE s.name NOT IN ('Someday', 'Maybe', 'Gifts')").all().forEach(add);
+  pastRecommendations(5000).forEach(add);
+  return { ids, gids, keys };
 }
 
 // ---------- shelves ----------
@@ -381,10 +398,12 @@ export function shelfItems(shelfId) {
                      FROM shelf_items i JOIN books b ON b.id = i.book_id WHERE i.shelf_id = ? ORDER BY i.added_at DESC`).all(shelfId)
     .map((r) => ({ ...r, genres: P(r.genres) || [], my_verdict: P(r.my_verdict) }));
 }
+// Reading-state shelves: a book sits on at most one of them. Gifts is a system shelf but not a reading state.
+export const STATUS_SHELVES = ['Reading now', 'Up next', 'Someday', 'Maybe', 'Finished', 'Did not finish', 'Not for me'];
+export function isStatusShelf(shelf) { return !!shelf && STATUS_SHELVES.includes(shelf.name); }
 export function addToShelf({ shelfId, bookId, note = null, exclusiveStatus = false }) {
   if (exclusiveStatus) {
-    // A book has one "status" shelf among the system reading-state shelves.
-    const statusShelves = db.prepare("SELECT id FROM shelves WHERE kind = 'system'").all().map((s) => s.id);
+    const statusShelves = db.prepare(`SELECT id FROM shelves WHERE name IN (${STATUS_SHELVES.map(() => '?').join(',')})`).all(...STATUS_SHELVES).map((s) => s.id);
     db.prepare(`DELETE FROM shelf_items WHERE book_id = ? AND shelf_id IN (${statusShelves.map(() => '?').join(',')}) AND shelf_id != ?`).run(bookId, ...statusShelves, shelfId);
   }
   db.prepare(`INSERT INTO shelf_items(shelf_id, book_id, note, added_at) VALUES (?, ?, ?, ?)
@@ -433,7 +452,7 @@ export function signalBooks() {
     rows.push({ book_id: h.book_id, title: h.title, source: 'history', rating: h.my_rating, finished: h.status === 'read', dnf: h.status === 'dnf', pages: h.pages, digest: P(h.review_digest) });
   for (const i of db.prepare(`SELECT i.*, s.name AS shelf, b.title, b.review_digest, b.pages FROM shelf_items i JOIN shelves s ON s.id = i.shelf_id JOIN books b ON b.id = i.book_id WHERE s.name IN ('Finished', 'Did not finish', 'Not for me') AND b.review_digest IS NOT NULL`).all())
     rows.push({ book_id: i.book_id, title: i.title, source: 'shelf', rating: i.my_rating, finished: i.shelf === 'Finished', dnf: i.shelf === 'Did not finish', rejected: i.shelf === 'Not for me', pages: i.pages, digest: P(i.review_digest) });
-  for (const r of db.prepare(`SELECT r.book_id, r.feedback, r.outcome, b.title, b.review_digest, b.pages FROM recommendations r JOIN books b ON b.id = r.book_id WHERE r.feedback IN ('finished', 'dropped') AND b.review_digest IS NOT NULL`).all())
+  for (const r of db.prepare(`SELECT r.book_id, r.feedback, r.outcome, b.title, b.review_digest, b.pages FROM recommendations r JOIN books b ON b.id = r.book_id JOIN sessions s ON s.id = r.session_id WHERE r.feedback IN ('finished', 'dropped') AND s.mode != 'gift' AND b.review_digest IS NOT NULL`).all())
     rows.push({ book_id: r.book_id, title: r.title, source: 'outcome', rating: P(r.outcome)?.rating || null, finished: r.feedback === 'finished', dnf: r.feedback === 'dropped', pages: r.pages, digest: P(r.review_digest) });
   for (const d of db.prepare(`SELECT d.book_id, d.outcome, d.rating, b.title, b.review_digest, b.pages FROM debriefs d JOIN books b ON b.id = d.book_id WHERE b.review_digest IS NOT NULL ORDER BY d.id`).all())
     rows.push({ book_id: d.book_id, title: d.title, source: 'debrief', rating: d.rating || null, finished: d.outcome === 'finished', dnf: d.outcome === 'dropped', pages: d.pages, digest: P(d.review_digest) });
@@ -461,7 +480,7 @@ export function addHistory(h) {
   db.prepare(`INSERT INTO reading_history(book_id, title, author, my_rating, my_review, date_read, status, tags, source, raw, imported_at)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
               ON CONFLICT(title, author, source) DO UPDATE SET my_rating = excluded.my_rating, my_review = excluded.my_review, date_read = excluded.date_read, status = excluded.status, tags = excluded.tags`)
-    .run(h.bookId || null, h.title, h.author || null, h.myRating ?? null, h.myReview || null, h.dateRead || null, h.status || 'read', J(h.tags || []), h.source, J(h.raw || null), now());
+    .run(h.bookId || null, h.title, h.author || '', h.myRating ?? null, h.myReview || null, h.dateRead || null, h.status || 'read', J(h.tags || []), h.source, J(h.raw || null), now());
 }
 export function linkHistoryBook(id, bookId) { db.prepare('UPDATE reading_history SET book_id = ? WHERE id = ?').run(bookId, id); }
 export function listHistory({ limit = 500 } = {}) {

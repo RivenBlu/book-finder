@@ -76,7 +76,7 @@ export function recordAnswer(sessionId, { qId, answer, freeText, skipped }) {
     const value = { answer: answer ?? null, text: freeText || null, labels: labels(q, answer) };
     if (q.layer === 'onboarding') setFact({ key: qId, value, kind: 'trait', confidence: 0.9, source: 'answer', sessionId });
     else if (q.layer === 'anchors') setFact({ key: qId, value: { ...value, book: q.book, kind: q.kind }, kind: 'trait', confidence: 0.9, source: 'answer', sessionId, note: `${q.kind}: ${q.book}` });
-    else if (q.layer === 'gift') { /* about someone else: stays in the session only */ }
+    else if (q.layer === 'gift' || session.mode === 'gift') { /* about someone else: stays in the session only */ }
     else setFact({ key: qId, value, kind: 'state', confidence: 0.9, source: 'answer', sessionId });
   }
   if (q.layer === 'anchors') {
@@ -106,6 +106,11 @@ export function undoLastAnswer(sessionId) {
   // Only undoing a taste answer reopens the taste profile; going back during the check-in must not.
   if (last.layer === 'onboarding') db.prepare("DELETE FROM profile_facts WHERE key = 'onboarding_completed' AND session_id = ?").run(sessionId);
   if (last.layer === 'anchors') db.prepare("DELETE FROM profile_facts WHERE key = 'anchors_completed' AND session_id = ?").run(sessionId);
+  // Questions written from earlier answers are rewritten if one of those answers is changed.
+  const session = getSession(sessionId);
+  const left = new Set(getAnswers(sessionId).map((a) => a.q_id));
+  if (['loved_books', 'abandoned_books'].includes(last.q_id) && session.anchors && !session.anchors.some((q) => left.has(q.id))) updateSession(sessionId, { anchors: null });
+  if (!['adaptive', 'anchors'].includes(last.layer) && session.adaptive && !session.adaptive.some((q) => left.has(q.id))) updateSession(sessionId, { adaptive: null });
   return { previous: { answer: last.answer, freeText: last.free_text } };
 }
 
@@ -135,7 +140,7 @@ export async function generateAdaptive(sessionId) {
   const prompt = `READER CONTEXT (JSON):\n${JSON.stringify(ctx, null, 1)}\n\nDesign ${Math.min(n, 4)} follow-up questions (or fewer if the picture is already sharp). Prefer one "pair" question with invented micro-blurbs.${extra}`;
   const { data } = await ask({ system: ADAPTIVE_SYSTEM, prompt, schema: ADAPTIVE_SCHEMA, tier: getSetting('tier_adaptive', 'smart'), effort: 'medium' });
   const qs = (data.questions || []).slice(0, 4).map((q, i) => ({
-    id: q.id?.startsWith('adaptive_') ? q.id : `adaptive_${i + 1}_${(q.id || 'q').replace(/\W+/g, '_')}`,
+    id: `adaptive_${i + 1}_${(q.id || 'q').replace(/^adaptive_/, '').replace(/\W+/g, '_').slice(0, 40)}`,
     layer: 'adaptive', type: q.type === 'pair' ? 'single' : q.type, text: q.text, help: q.help || '',
     options: q.options.map((o, j) => ({ id: o.id || `o${j + 1}`, label: o.label, hint: o.hint || '' })),
     pair: q.type === 'pair',

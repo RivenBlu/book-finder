@@ -5,7 +5,7 @@ import { searchGoodreads, fetchGoodreadsBook } from '../sources/goodreads.js';
 import { searchOpenLibrary } from '../sources/openlibrary.js';
 import { searchLubimyczytac, fetchLubimyczytacBook } from '../sources/lubimyczytac.js';
 import { searchHardcover } from '../sources/hardcover.js';
-import { getSession, updateSession, getSetting, upsertBook, getBook, getBookByGoodreadsId, findBookByTitle, setReviewDigest, addRecommendation, digestStale, db } from '../db.js';
+import { getSession, updateSession, getSetting, upsertBook, getBook, getBookByGoodreadsId, findBookByTitle, setReviewDigest, addRecommendation, digestStale, knownBooks, now as dbNow, db } from '../db.js';
 import { BRIEF_SCHEMA, BRIEF_SYSTEM, CANDIDATES_SCHEMA, CANDIDATES_SYSTEM, DIGEST_SCHEMA, DIGEST_SYSTEM, RANK_SCHEMA, RANK_SYSTEM, PATH_BRIEF_SCHEMA, PATH_BRIEF_SYSTEM, PATH_RANK_SCHEMA, PATH_RANK_SYSTEM } from '../prompts.js';
 import { fullContext, excludeList, answersDigest } from './context.js';
 import { verdictFor } from './talk.js';
@@ -37,7 +37,10 @@ export async function runRecommendation(sessionId) {
   if (running.has(sessionId)) throw new Error('already running');
   const log = logger(sessionId);
   const session = getSession(sessionId);
+  if (!session) { running.delete(sessionId); throw new Error('no such session'); }
   const mode = session.mode;
+  const statusBefore = session.status;
+  let failed = false;
   updateSession(sessionId, { status: 'researching' });
   try {
     const gift = mode === 'gift';
@@ -75,7 +78,20 @@ export async function runRecommendation(sessionId) {
         return book ? { candidate: c, book } : null;
       } catch (e) { log('enrich', `Failed: ${c.title}: ${e.message}`); return null; }
     });
-    const found = enriched.filter(Boolean);
+    // Code-level guards: the same book twice (omnibus vs. book 1, translated title), books already read, shelved,
+    // recommended or rejected (the model sometimes forgets the list or proposes a known book under another title),
+    // and books far over the page limit.
+    const known = gift ? null : knownBooks();
+    const maxPages = !path && brief.constraints?.max_pages > 0 ? brief.constraints.max_pages : 0;
+    const seenBooks = new Set();
+    const found = [];
+    for (const x of enriched.filter(Boolean)) {
+      if (seenBooks.has(x.book.id)) continue;
+      seenBooks.add(x.book.id);
+      if (known && !x.candidate.reread && isKnown(x.book, known)) { log('enrich', `Skipped (you already know it): ${x.book.title}`); continue; }
+      if (maxPages && x.book.pages && x.book.pages > maxPages * 1.15) { log('enrich', `Skipped (${x.book.pages} pages, over your ${maxPages}): ${x.book.title}`); continue; }
+      found.push(x);
+    }
     if (found.length < 3) throw new Error('Too few candidates could be verified against Goodreads. Check your connection and retry.');
 
     // 4. Review digests (cached per book; refreshed when stale)
@@ -98,50 +114,78 @@ export async function runRecommendation(sessionId) {
     }));
     const after = !gift && ctx.after_reading ? `\n\nAFTER RECENT BOOKS (the reader's own debriefs, freshest evidence; match candidates' complaints against what bothered them):\n${[...(ctx.after_reading.patterns || []), ...ctx.after_reading.books.slice(0, 12)].join('\n')}` : '';
     const header = `BRIEF (JSON):\n${JSON.stringify(brief, null, 1)}\n\nREADER DNA:\n${gift ? '(gift: not applicable)' : ctx.reader_dna || '(none yet)'}\n\nTODAY'S ANSWERS:\n${JSON.stringify(ctx.session_answers, null, 1)}${after}\n\nENRICHED CANDIDATES (JSON, index = candidate_index):\n${JSON.stringify(packed, null, 1)}`;
-    db.prepare('DELETE FROM recommendations WHERE session_id = ?').run(sessionId);
+    // A re-run ("Same answers, different picks") keeps the earlier slate as evidence: its rows are marked superseded,
+    // in one transaction with the new rows, and only once the new slate is ready.
+    const used = new Set();
+    const saveSlate = (write) => {
+      db.exec('BEGIN');
+      try {
+        db.prepare('UPDATE recommendations SET superseded_at = ? WHERE session_id = ? AND superseded_at IS NULL').run(dbNow(), sessionId);
+        write((args) => { if (used.has(args.bookId)) return; used.add(args.bookId); addRecommendation(args); });
+        db.exec('COMMIT');
+      } catch (e) { db.exec('ROLLBACK'); throw e; }
+    };
 
     if (path) {
       const ranked = (await ask({ system: PATH_RANK_SYSTEM, schema: PATH_RANK_SCHEMA, tier: getSetting('tier_rank', 'best'), effort: 'high', prompt: `${header}\n\nAssemble the reading path.` })).data;
-      let rank = 1;
-      for (const p of ranked.path) {
-        const x = found[p.candidate_index]; if (!x) continue;
-        const alt = p.alternate_index >= 0 ? found[p.alternate_index] : null;
-        addRecommendation({ sessionId, bookId: x.book.id, rank: rank++, slot: p.stage, fit: { ...p, kind: 'pick', path: true, why_now: p.why_here, reread: !!x.candidate.reread, alternate: alt ? { book_id: alt.book.id, title: alt.book.title, author: alt.book.author, when: p.alternate_when } : null } });
-        if (alt) addRecommendation({ sessionId, bookId: alt.book.id, rank: 100 + rank, slot: 'alternate_' + p.stage, fit: { kind: 'alternate', stage: p.stage, one_line: p.alternate_when || 'Alternate for this stage' } });
-      }
+      const stageBooks = new Set(ranked.path.map((p) => found[p.candidate_index]?.book.id).filter(Boolean));
+      saveSlate((add) => {
+        let rank = 1;
+        for (const p of ranked.path) {
+          const x = found[p.candidate_index]; if (!x || used.has(x.book.id)) continue;
+          let alt = p.alternate_index >= 0 && p.alternate_index !== p.candidate_index ? found[p.alternate_index] : null;
+          if (alt && (stageBooks.has(alt.book.id) || used.has(alt.book.id))) alt = null; // an alternate that is another stage's book is no alternate
+          add({ sessionId, bookId: x.book.id, rank: rank++, slot: p.stage, fit: { ...p, kind: 'pick', path: true, why_now: p.why_here, reread: !!x.candidate.reread, alternate: alt ? { book_id: alt.book.id, title: alt.book.title, author: alt.book.author, when: p.alternate_when } : null } });
+          if (alt) add({ sessionId, bookId: alt.book.id, rank: 100 + rank, slot: 'alternate_' + p.stage, fit: { kind: 'alternate', stage: p.stage, one_line: p.alternate_when || 'Alternate for this stage' } });
+        }
+      });
       updateSession(sessionId, { status: 'recommended', ended_at: new Date().toISOString(), brief: { ...brief, note_to_reader: ranked.arc_note, dropped: (ranked.dropped || []).map((d) => ({ title: found[d.candidate_index]?.book?.title, reason: d.reason })) } });
     } else {
       const ranked = (await ask({ system: RANK_SYSTEM, schema: RANK_SCHEMA, tier: getSetting('tier_rank', 'best'), effort: 'high', prompt: `${header}\n\nChoose the slate.` })).data;
       // 6. Second opinion: the same "Should I read this?" judge the book page uses checks every book on the slate,
       // so the slate and the verdicts can no longer contradict each other. Verdicts are stored and shown on the book page.
       const slate = gift || getSetting('verify_picks', 'true') !== 'true' ? ranked : await secondOpinion(ranked, found, sessionId, log);
-      let rank = 1;
-      for (const p of slate.picks) {
-        const x = found[p.candidate_index]; if (!x) continue;
-        addRecommendation({ sessionId, bookId: x.book.id, rank: rank++, slot: p.slot, fit: { ...p, kind: 'pick', reread: !!x.candidate.reread } });
-      }
-      for (const e of slate.exceptions || []) {
-        const x = found[e.candidate_index]; if (!x) continue;
-        addRecommendation({ sessionId, bookId: x.book.id, rank: 50 + rank++, slot: 'exception', fit: { kind: 'exception', missing: e.missing, worth_it_because: e.worth_it_because, check: e.check || null } });
-      }
-      for (const r of slate.runners_up || []) {
-        const x = found[r.candidate_index]; if (!x) continue;
-        addRecommendation({ sessionId, bookId: x.book.id, rank: 100 + rank++, slot: 'runner_up', fit: { kind: 'runner_up', one_line: r.one_line, check: r.check || null } });
-      }
+      saveSlate((add) => {
+        let rank = 1;
+        for (const p of slate.picks) {
+          const x = found[p.candidate_index]; if (!x) continue;
+          add({ sessionId, bookId: x.book.id, rank: rank++, slot: p.slot, fit: { ...p, kind: 'pick', reread: !!x.candidate.reread } });
+        }
+        for (const e of slate.exceptions || []) {
+          const x = found[e.candidate_index]; if (!x) continue;
+          add({ sessionId, bookId: x.book.id, rank: 50 + rank++, slot: 'exception', fit: { kind: 'exception', missing: e.missing, worth_it_because: e.worth_it_because, check: e.check || null } });
+        }
+        for (const r of slate.runners_up || []) {
+          const x = found[r.candidate_index]; if (!x) continue;
+          add({ sessionId, bookId: x.book.id, rank: 100 + rank++, slot: 'runner_up', fit: { kind: 'runner_up', one_line: r.one_line, check: r.check || null } });
+        }
+      });
       updateSession(sessionId, { status: 'recommended', ended_at: new Date().toISOString(), brief: { ...brief, note_to_reader: slate.note_to_reader, dropped: (slate.dropped || []).map((d) => ({ title: found[d.candidate_index]?.book?.title, reason: d.reason })) } });
     }
     log('done', 'Done');
   } catch (e) {
+    failed = true;
     log('error', e.message);
-    updateSession(sessionId, { status: 'interview' });
+    // A failed re-run leaves the earlier slate in place and the session as it was.
+    updateSession(sessionId, { status: statusBefore === 'recommended' ? 'recommended' : 'interview' });
     throw e;
   } finally {
-    setTimeout(() => running.delete(sessionId), 60_000);
+    // After a failure the session can be retried at once; after success the log stays a minute for late listeners.
+    if (failed) running.delete(sessionId);
+    else setTimeout(() => running.delete(sessionId), 60_000);
   }
+}
+
+// Is this book one the reader already knows (read, shelved, recommended before)? By id, Goodreads id, or close title + author.
+export function isKnown(book, known) {
+  if (known.ids.has(book.id) || (book.goodreads_id && known.gids.has(String(book.goodreads_id)))) return true;
+  const ln = lastName(book.author || '');
+  return known.keys.some((k) => titleMatch(k.title, book.title) >= 0.85 && (!k.author || !ln || k.author.toLowerCase().includes(ln)));
 }
 
 // ---------- second opinion ----------
 const GOOD = ['yes', 'probably'];
+const EXCEPTION_FIT = 58; // a must-have miss is worth showing only when the book is otherwise a strong fit
 const VLABEL = { yes: 'yes', probably: 'probably', maybe: 'maybe', probably_not: 'probably not', no: 'no' };
 // Pure: reshapes the ranked slate given one verdict per candidate index (Map). Exported for tests.
 export function applySecondOpinion(ranked, verdicts, found) {
@@ -156,7 +200,7 @@ export function applySecondOpinion(ranked, verdicts, found) {
     if (!v) { if (asPick) picks.push(asPick); else runners.push({ candidate_index: i, one_line: ranked.runners_up.find((r) => r.candidate_index === i)?.one_line || '' }); return; }
     const miss = missing(v);
     if (miss.length) {
-      if (v.fit >= 60) exceptions.push({ candidate_index: i, missing: miss.join('; '), worth_it_because: v.headline, check: check(v) });
+      if (v.fit >= EXCEPTION_FIT) exceptions.push({ candidate_index: i, missing: miss.join('; '), worth_it_because: v.headline, check: check(v) });
       else dropped.push({ candidate_index: i, reason: `Misses your must-have (${miss.join('; ')}).` });
     } else if (GOOD.includes(v.verdict)) {
       if (asPick) picks.push({ ...asPick, check: check(v) });
@@ -172,7 +216,7 @@ export function applySecondOpinion(ranked, verdicts, found) {
   for (const e of ranked.exceptions || []) {
     const i = e.candidate_index; if (seen.has(i)) continue; seen.add(i);
     const v = verdicts.get(i);
-    if (!v || v.fit >= 55) exceptions.push({ ...e, check: check(v) });
+    if (!v || v.fit >= EXCEPTION_FIT) exceptions.push({ ...e, check: check(v) });
     else dropped.push({ candidate_index: i, reason: `Misses your must-have (${e.missing}) and the second look was ${VLABEL[v.verdict]}.` });
   }
   // Runners-up the judge liked fill the slate back up to three; they are written from the verdict.
@@ -182,15 +226,23 @@ export function applySecondOpinion(ranked, verdicts, found) {
       picks.push({ candidate_index: i, slot: 'second look', honest_verdict: v.verdict, headline: v.headline, why_now: v.why, what_readers_love: v.you_will_love, what_readers_complain: v.will_bother_you, risk_for_you: v.biggest_risk, read_if: v.best_moment, skip_if: v.not_now_if, first_pages: v.first_pages, audio_note: v.audio_note || '', confidence: v.confidence, check: check(v), promoted: true });
     } else runners.push({ candidate_index: i, one_line: `Also a "${VLABEL[v.verdict]}" (${v.fit}%): ${v.headline}`, check: check(v) });
   }
-  const removed = ranked.picks.filter((p) => !picks.some((q) => q.candidate_index === p.candidate_index)).map((p) => title(p.candidate_index));
+  const inPicks = (i) => picks.some((q) => q.candidate_index === i);
+  const inExc = (i) => exceptions.some((q) => q.candidate_index === i);
+  const removed = ranked.picks.filter((p) => !inPicks(p.candidate_index) && !inExc(p.candidate_index)).map((p) => title(p.candidate_index));
+  const moved = ranked.picks.filter((p) => inExc(p.candidate_index)).map((p) => title(p.candidate_index));
   // The ranker's note talks about its own picks; once any of them is removed it would contradict the page, so it is replaced.
-  let note = removed.length ? `After a second, stricter look I took out ${removed.join(', ')}; the reasons are under "The brief".` : ranked.note_to_reader || '';
+  let note = removed.length || moved.length ? [
+    removed.length ? `After a second, stricter look I took out ${removed.join(', ')}; the reasons are under "The brief".` : '',
+    moved.length ? `${moved.join(', ')} ${moved.length > 1 ? 'miss' : 'misses'} one of your must-haves, so ${moved.length > 1 ? 'they are' : 'it is'} under "Worth breaking a must-have?".` : '',
+  ].filter(Boolean).join(' ') : ranked.note_to_reader || '';
   if (!picks.length) {
     const tally = {};
     for (const [, v] of verdicts) for (const m of missing(v)) { const k = m.split(' (')[0].trim(); tally[k] = (tally[k] || 0) + 1; }
     const worst = Object.entries(tally).sort((a, b) => b[1] - a[1])[0];
     note += ` Nothing passed the second look cleanly, so there are no picks this time.${worst ? ` The must-have that ruled out the most books was "${worst[0]}" (${worst[1]} of ${verdicts.size}).` : ''} The closest calls are below; "Same answers, different picks" tries a fresh long list.`;
   }
+  for (const x of exceptions.slice(3)) dropped.push({ candidate_index: x.candidate_index, reason: `Misses your must-have (${x.missing}); fewer exceptions shown.` });
+  for (const x of runners.slice(5)) dropped.push({ candidate_index: x.candidate_index, reason: x.one_line || 'Not among the closest calls.' });
   return { ...ranked, picks, runners_up: runners.slice(0, 5), exceptions: exceptions.slice(0, 3), dropped, note_to_reader: note };
 }
 
@@ -277,16 +329,22 @@ export async function enrichCandidate(c, { polish = false } = {}) {
 async function attachPolish(book, c) {
   let hits = [];
   try { hits = await searchLubimyczytac(`${c.title} ${c.author}`); } catch {}
-  if (!hits.length) { try { hits = await searchLubimyczytac(c.author); } catch {} }
   const ln = lastName(c.author);
-  const hit = hits.find((x) => x.author.toLowerCase().includes(ln) && titleMatch(x.title, c.title) > 0.5) || hits.find((x) => x.author.toLowerCase().includes(ln) && hits.length <= 3);
+  if (!ln) return null; // without an author every Polish book would "match"
+  if (!hits.length) { try { hits = await searchLubimyczytac(c.author); } catch {} }
+  const byTitle = hits.find((x) => x.author.toLowerCase().includes(ln) && titleMatch(x.title, c.title) > 0.5);
+  const byAuthor = !byTitle && hits.length <= 3 ? hits.find((x) => x.author.toLowerCase().includes(ln)) : null;
+  const hit = byTitle || byAuthor;
   if (!hit) return null;
   await sleep(300);
   const lc = await fetchLubimyczytacBook(hit.url);
+  // A Polish title rarely matches the English one, so an author-only hit must prove itself with its original title.
+  if (byAuthor && !(lc.originalTitle && titleMatch(lc.originalTitle, c.title) >= 0.6)) return null;
   if (lc.originalTitle && titleMatch(lc.originalTitle, c.title) < 0.5 && titleMatch(lc.title, c.title) < 0.5) return null;
   const extra = { ...(book.extra || {}), lubimyczytac: { url: lc.url, polishTitle: lc.title, rating10: lc.rating10, ratingsCount: lc.ratingsCount, pages: lc.pages, translator: lc.translator, audiobook: lc.audiobook, checkedAt: new Date().toISOString() } };
   const reviews = [...(book.reviews || []).filter((r) => r.source !== 'lubimyczytac'), ...lc.reviews.slice(0, 12)];
-  db.prepare('UPDATE books SET extra = ?, reviews = ? WHERE id = ?').run(JSON.stringify(extra), JSON.stringify(reviews), book.id);
+  // New Polish reviews change what the digest should say: mark it for a refresh.
+  db.prepare('UPDATE books SET extra = ?, reviews = ?, digested_at = NULL WHERE id = ?').run(JSON.stringify(extra), JSON.stringify(reviews), book.id);
   book.extra = extra; book.reviews = reviews;
   return extra.lubimyczytac;
 }
@@ -306,8 +364,10 @@ export async function digestBook(book) {
   const reviews = (book.reviews || []).slice(0, 48).map((r, i) => `#${i + 1} [${r.rating ?? '?'}/5${r.rating10 ? ' (' + r.rating10 + '/10 PL)' : ''}, ${r.likes} likes${r.createdAt ? ', ' + r.createdAt : ''}${r.source === 'lubimyczytac' ? ', Polish reader on lubimyczytac.pl' : ''}${r.critical ? ', from the lowest-rated reviews' : ''}]${r.shelves?.length ? ' shelves: ' + r.shelves.join(', ') : ''}\n${r.text.slice(0, 1400)}`).join('\n\n');
   const hc = book.extra?.hardcover ? `\nHardcover.app crowd tags: moods ${JSON.stringify(book.extra.hardcover.moods)}, genres ${JSON.stringify(book.extra.hardcover.genres)}, content warnings ${JSON.stringify(book.extra.hardcover.contentWarnings)}.` : '';
   const pl = book.extra?.lubimyczytac ? `\nPolish edition "${book.extra.lubimyczytac.polishTitle}": ${book.extra.lubimyczytac.rating10}/10 from ${book.extra.lubimyczytac.ratingsCount} Polish readers.` : '';
+  const series = (book.extra?.series || []).filter((x) => x.title).map((x) => `${x.title}${x.position ? ' #' + x.position : ''}`);
   const prompt = `BOOK: ${book.title} by ${book.author} (${book.year || '?'}), ${book.pages || '?'} pages. Genres: ${book.genres.join(', ')}.
 Average ${book.rating} from ${book.ratings_count?.toLocaleString()} ratings. Distribution 1..5 stars: ${JSON.stringify(book.rating_dist)}.${hc}${pl}
+Series (Goodreads): ${series.join('; ') || 'none listed'}.
 
 DESCRIPTION:
 ${(book.description || '').slice(0, 2500)}
