@@ -144,8 +144,11 @@ route('POST', '/api/chat', async (req, p, res) => {
   if (!b.message?.trim()) throw httpError(400, 'empty message');
   res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
   const send = (ev) => { try { res.write(`data: ${JSON.stringify(ev)}\n\n`); } catch {} };
+  // Leaving the page stops the answer instead of letting it run on the subscription for nobody.
+  const ac = new AbortController();
+  res.on('close', () => { if (!res.writableEnded) ac.abort(); });
   try {
-    await chat({ bookId: Number(b.bookId) || null, sessionId: Number(b.sessionId) || null, message: b.message.trim(), page: Number(b.page) || null, onEvent: send });
+    await chat({ bookId: Number(b.bookId) || null, sessionId: Number(b.sessionId) || null, message: b.message.trim(), page: Number(b.page) || null, onEvent: send, abortController: ac });
   } catch (e) { send({ type: 'error', message: e.message }); }
   res.end();
   return null;

@@ -56,7 +56,7 @@ export function loadChat({ bookId, sessionId }) {
 }
 
 /** Streams a reply. onEvent gets {type:'delta',text} | {type:'tool',name} | {type:'done',chat} | {type:'error',message}. */
-export async function chat({ bookId, sessionId, message, page = null, onEvent }) {
+export async function chat({ bookId, sessionId, message, page = null, onEvent, abortController }) {
   const book = bookId ? DB.getBook(bookId) : null;
   if (bookId && !book) throw new Error('no such book');
   const existing = DB.getChat(bookId || null, sessionId || null);
@@ -77,7 +77,7 @@ export async function chat({ bookId, sessionId, message, page = null, onEvent })
   const web = DB.getSetting('chat_web', 'true') === 'true';
   let reply;
   try {
-    const { data } = await ask({ system: chatSystem({ scope, page }), prompt, tier: DB.getSetting('tier_chat', 'smart'), effort: 'medium', web, maxTurns: web ? 8 : 2, onEvent });
+    const { data } = await ask({ system: chatSystem({ scope, page }), prompt, tier: DB.getSetting('tier_chat', 'smart'), effort: 'medium', web, maxTurns: web ? 8 : 2, onEvent, abortController });
     reply = String(data || '').trim();
   } catch (e) {
     messages.pop();

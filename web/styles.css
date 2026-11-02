@@ -392,3 +392,6 @@ svg .star { animation: twinkle 3.2s ease-in-out infinite; transform-origin: cent
 .chooselist .ttl { font-family: var(--reading); font-size: 19px; font-weight: 600; }
 
 .q .text:focus { outline: none; }
+
+/* Phones: the menu scrolls sideways; a soft fade on the edge shows there is more (it goes away at the end). */
+nav.more-right { -webkit-mask-image: linear-gradient(to right, #000 82%, transparent); mask-image: linear-gradient(to right, #000 82%, transparent); }

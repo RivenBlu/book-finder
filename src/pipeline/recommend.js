@@ -266,6 +266,14 @@ export function applySecondOpinion(ranked, verdicts, found) {
     const worst = Object.entries(tally).sort((a, b) => b[1] - a[1])[0];
     note += ` Nothing passed the second look cleanly, so there are no picks this time.${worst ? ` The must-have that ruled out the most books was "${worst[0]}" (${worst[1]} of ${verdicts.size}).` : ''} The closest calls are below; "Same answers, different picks" tries a fresh long list.`;
   }
+  // Never an empty page: when nothing passes, the two closest calls are shown with their honest verdicts.
+  if (!picks.length && !runners.length) {
+    const closest = [...verdicts].filter(([i]) => !exceptions.some((e) => e.candidate_index === i)).sort((a, b) => b[1].fit - a[1].fit).slice(0, 2);
+    for (const [i, v] of closest) {
+      runners.push({ candidate_index: i, one_line: `Closest call (${VLABEL[v.verdict]}, ${v.fit}%): ${v.headline}`, check: check(v) });
+      const k = dropped.findIndex((d) => d.candidate_index === i); if (k >= 0) dropped.splice(k, 1);
+    }
+  }
   for (const x of exceptions.slice(3)) dropped.push({ candidate_index: x.candidate_index, reason: `Misses your must-have (${x.missing}); fewer exceptions shown.` });
   for (const x of runners.slice(5)) dropped.push({ candidate_index: x.candidate_index, reason: x.one_line || 'Not among the closest calls.' });
   return { ...ranked, picks, runners_up: runners.slice(0, 5), exceptions: exceptions.slice(0, 3), dropped, note_to_reader: note };
@@ -401,7 +409,7 @@ REAL READER REVIEWS (${(book.reviews || []).length}; the most-liked ones first, 
 ${reviews || '(none available)'}
 
 Write the digest.`;
-  const { data } = await ask({ system: DIGEST_SYSTEM, prompt, schema: DIGEST_SCHEMA, tier: getSetting('tier_digest', 'fast'), effort: 'low' });
+  const { data } = await ask({ system: DIGEST_SYSTEM, prompt, schema: DIGEST_SCHEMA, tier: getSetting('tier_digest', 'fast'), effort: 'low', timeoutMs: 150_000 });
   setReviewDigest(book.id, data);
   return data;
 }

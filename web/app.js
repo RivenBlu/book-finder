@@ -88,6 +88,12 @@ async function router() {
   try { await (routes[name] || home)(...args); } catch (e) { app.innerHTML = h`<div class="section"><h2>Something broke</h2><p class="sec" style="margin-top:8px">${e.message}</p><p style="margin-top:16px"><a class="btn" href="#home">Home</a></p></div>`; }
 }
 window.addEventListener('hashchange', router);
+// Menu overflow hint on narrow screens.
+{
+  const nav = document.querySelector('nav');
+  const edge = () => nav && nav.classList.toggle('more-right', nav.scrollLeft + nav.clientWidth < nav.scrollWidth - 4);
+  nav?.addEventListener('scroll', edge, { passive: true }); window.addEventListener('resize', edge); setTimeout(edge, 0);
+}
 
 // ---------- home ----------
 async function home() {

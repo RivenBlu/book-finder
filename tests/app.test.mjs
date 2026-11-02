@@ -243,3 +243,14 @@ test('gift slates stay out of the owner evidence; replaced slates stay as eviden
   assert.equal(DB.getRecommendations(q).length, 0);
   assert.ok(DB.knownBooks().ids.has(b2));
 });
+
+test('second opinion never leaves an empty page: the two closest calls stay as runners-up', () => {
+  const found = ['A', 'B', 'C'].map((t) => ({ book: { title: t } }));
+  const v = (verdict, fit) => ({ verdict, fit, headline: `${verdict} ${fit}`, must_haves_missing: [] });
+  const out = applySecondOpinion({ picks: [{ candidate_index: 0 }, { candidate_index: 1 }], runners_up: [{ candidate_index: 2, one_line: 'x' }], exceptions: [], dropped: [] },
+    new Map([[0, v('probably_not', 45)], [1, v('no', 20)], [2, v('probably_not', 50)]]), found);
+  assert.equal(out.picks.length, 0);
+  assert.deepEqual(out.runners_up.map((r) => r.candidate_index), [2, 0]);
+  assert.match(out.runners_up[0].one_line, /^Closest call/);
+  assert.deepEqual(out.dropped.map((d) => d.candidate_index), [1]);
+});

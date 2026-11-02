@@ -42,10 +42,16 @@ function release() { active--; const w = waiters.shift(); if (w) w(); }
  * @param {number} [p.maxTurns]
  * @param {(ev:object)=>void} [p.onEvent] progress callback (tool uses, text deltas)
  */
-export async function ask({ system, prompt, schema, tier = 'smart', effort = 'medium', web = false, maxTurns, onEvent }) {
+export async function ask({ system, prompt, schema, tier = 'smart', effort = 'medium', web = false, maxTurns, onEvent, abortController, timeoutMs }) {
   const model = resolveModel(tier);
   await gate();
   const t0 = Date.now();
+  // Every call has a time limit: one stuck call must not stall a whole search. The caller's abort (page closed) also stops it.
+  const limit = timeoutMs ?? (web ? 600_000 : 360_000);
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), limit);
+  const onOuter = () => ac.abort();
+  abortController?.signal.addEventListener('abort', onOuter, { once: true });
   try {
     const options = {
       systemPrompt: system,
@@ -62,6 +68,7 @@ export async function ask({ system, prompt, schema, tier = 'smart', effort = 'me
       maxTurns: maxTurns ?? (web ? 12 : 3),
       env: childEnv(),
       includePartialMessages: !!onEvent,
+      abortController: ac,
     };
     if (schema) options.outputFormat = { type: 'json_schema', schema };
     let text = '';
@@ -89,7 +96,12 @@ export async function ask({ system, prompt, schema, tier = 'smart', effort = 'me
       return { data: result.structured_output, meta };
     }
     return { data: result.result ?? text, meta };
+  } catch (e) {
+    if (ac.signal.aborted && !abortController?.signal.aborted) throw new Error(`LLM call timed out after ${Math.round(limit / 1000)} s (${model})`);
+    throw e;
   } finally {
+    clearTimeout(timer);
+    abortController?.signal.removeEventListener('abort', onOuter);
     release();
   }
 }
