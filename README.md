@@ -13,6 +13,8 @@ It runs on your own computer, keeps everything in one SQLite file, and uses your
 - **Mood, not genre.** The interview asks what the book must do for you tonight (distract, comfort, sit with it, thrill, make you think, make you laugh) and translates everything into the appeal vocabulary librarians use: pace, tone, style, character, storyline.
 - **Reviews, not ratings.** Every candidate gets its real Goodreads page: description, the full one-to-five star spread, the most-liked reviews and twenty of the one- and two-star ones. A model reads them and writes what readers love, what they complain about, who should skip it and how the first hundred pages feel.
 - **Honest about the risk.** Each pick names the single most likely reason you would abandon it, and the candidates dropped after reading reviews are listed with the reason.
+- **Must-haves are rules.** Say what the book must have this time ("romance at the centre", "a clever heroine", "standalone") and every pick has all of it. A great book that misses one is shown apart under "Worth breaking a must-have?", never slipped in.
+- **A second look before you see it.** Every pick is checked by the same "Should I read this?" judge the book page uses, so the slate and the verdicts agree. Only *yes* and *probably* stay picks; you may get two books instead of five.
 - **Trait and state.** Your taste is asked once and kept with its date. Your mood is asked every time. The tool learns which one to trust by watching what you actually finish.
 - **Reading paths.** An arc of books over weeks, each one a step, with checkpoints and swaps.
 
@@ -39,7 +41,8 @@ Requirements: Node 22.13+ (24 installed), Claude Code CLI logged in (`claude aut
 5. **Long list**: 12-22 real candidates, excluding everything you have read, shelved, been shown or rejected.
 6. **Real data**: for each candidate, the Goodreads page (description, genres, rating distribution, the 30 most-liked real reviews), Open Library subjects, optional Hardcover crowd moods, and for Polish sessions lubimyczytac.pl ratings (1-10) and Polish reviews. Cached forever per book.
 7. **Review digests**: Claude reads the real reviews per book: praise, complaints, who loves it, who should skip, how the first 100 pages read, content notes, verbatim quotes. Cached per book.
-8. **Final slate**: 3-5 picks with slot, headline, "why now", what readers love and complain about, the single biggest risk *for you*, read-if / skip-if, how to approach the opening, plus runners-up and the candidates dropped after reading reviews (with reasons).
+8. **Final slate**: up to 5 picks (no quota: fewer when fewer deserve it) with slot, headline, "why now", what readers love and complain about, the single biggest risk *for you*, read-if / skip-if, how to approach the opening, plus runners-up and the candidates dropped after reading reviews (with reasons).
+9. **Second look**: each pick, runner-up and exception gets a full "Should I read this?" verdict against today's check-in and must-haves. Picks that fail it move down or out, with the reason; runners-up it likes move up. The verdicts are saved, so a book page shows the same answer. Switch it off in Settings for faster, looser slates.
 
 Every answer is stored with a timestamp. Trait answers are superseded, never overwritten, so drift stays visible. State answers (mood, need) are kept per session.
 
@@ -71,6 +74,8 @@ Every pick on a results page, and every book page, has **Ask about this book**: 
 
 **Reading companion**: on a book page, set "I am on page N". From then on the conversation keeps everything after that page secret, and "Is it worth continuing?" is answered from what reviewers say about the later parts and from your own history of dropping books, with honest permission to stop. The same page takes lines you underlined; they feed the Reader DNA. "More by this author" ranks the author's other books for you.
 
+Every pick and book page also answers the questions readers ask first: **romance** (none, a hint, a subplot or at the centre; who, which tropes, how spicy, what readers thought of it), **series** (standalone, book 1 of a finished trilogy, ends on a cliffhanger) and **why the rating is what it is**.
+
 ## Should I read this?
 
 "Check a book" (or the box on the home page) takes a title, fetches its real reviews, and gives a verdict against your whole profile including your latest check-in: Yes / Probably / Maybe / Probably not / No, a fit percentage, what you will love, what will bother you, the biggest risk, the best moment to read it, and sometimes a better alternative for the same itch. Verdicts are kept on the book page; "Judge again" after your taste or mood changes.
@@ -90,6 +95,10 @@ If you answer "mostly as audio" or pick the audio format, the review digests not
 ## Export
 
 On a results page: **Copy as text** (Markdown, ready for a note or a message), **Download .md**, or **Print** for a clean sheet without buttons.
+
+## Choosing from what you saved
+
+On **Up next**, **Someday** and **Maybe**, "Which of these fits me right now?" ranks only the books already on that shelf against how you are now (a few words, or your latest check-in), with a verdict and one caution per book, and moves the winner to Reading now in one click. Books that already have a verdict start from it, and any change is explained.
 
 ## Shelves and learning
 

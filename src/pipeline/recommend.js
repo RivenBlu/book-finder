@@ -12,8 +12,13 @@ import { verdictFor } from './talk.js';
 
 const running = new Map(); // sessionId -> { listeners:Set, log:[] }
 
+// A failed run stays readable for a few seconds (so the progress page can show the error) but never blocks a retry.
 export function progressOf(sessionId) {
   return running.get(sessionId) || null;
+}
+export function isRunning(sessionId) {
+  const r = running.get(sessionId);
+  return !!r && !r.failed;
 }
 export function subscribe(sessionId, fn) {
   const r = running.get(sessionId);
@@ -34,12 +39,13 @@ function logger(sessionId) {
 }
 
 export async function runRecommendation(sessionId) {
-  if (running.has(sessionId)) throw new Error('already running');
+  if (isRunning(sessionId)) throw new Error('already running');
   const log = logger(sessionId);
   const session = getSession(sessionId);
   if (!session) { running.delete(sessionId); throw new Error('no such session'); }
   const mode = session.mode;
   const statusBefore = session.status;
+  const briefBefore = session.brief, summaryBefore = session.summary;
   let failed = false;
   updateSession(sessionId, { status: 'researching' });
   try {
@@ -85,14 +91,19 @@ export async function runRecommendation(sessionId) {
     const maxPages = !path && brief.constraints?.max_pages > 0 ? brief.constraints.max_pages : 0;
     const seenBooks = new Set();
     const found = [];
+    const skipped = { known: 0, long: 0 };
     for (const x of enriched.filter(Boolean)) {
       if (seenBooks.has(x.book.id)) continue;
       seenBooks.add(x.book.id);
-      if (known && !x.candidate.reread && isKnown(x.book, known)) { log('enrich', `Skipped (you already know it): ${x.book.title}`); continue; }
-      if (maxPages && x.book.pages && x.book.pages > maxPages * 1.15) { log('enrich', `Skipped (${x.book.pages} pages, over your ${maxPages}): ${x.book.title}`); continue; }
+      if (known && !x.candidate.reread && isKnown(x.book, known)) { skipped.known++; log('enrich', `Skipped (you already know it): ${x.book.title}`); continue; }
+      if (maxPages && x.book.pages && x.book.pages > maxPages * 1.15) { skipped.long++; log('enrich', `Skipped (${x.book.pages} pages, over your ${maxPages}): ${x.book.title}`); continue; }
       found.push(x);
     }
-    if (found.length < 3) throw new Error('Too few candidates could be verified against Goodreads. Check your connection and retry.');
+    if (found.length < 3) {
+      const unverified = enriched.filter((x) => !x).length;
+      const why = [unverified ? `${unverified} could not be found on Goodreads (connection or throttling)` : '', skipped.known ? `${skipped.known} you already know` : '', skipped.long ? `${skipped.long} were over your page limit` : ''].filter(Boolean).join(', ');
+      throw new Error(`Too few usable candidates (${found.length})${why ? ': ' + why : ''}. Try again; each run thinks of a new long list.`);
+    }
 
     // 4. Review digests (cached per book; refreshed when stale)
     const todo = found.filter((x) => digestStale(x.book));
@@ -167,20 +178,32 @@ export async function runRecommendation(sessionId) {
     failed = true;
     log('error', e.message);
     // A failed re-run leaves the earlier slate in place and the session as it was.
-    updateSession(sessionId, { status: statusBefore === 'recommended' ? 'recommended' : 'interview' });
+    updateSession(sessionId, statusBefore === 'recommended' ? { status: 'recommended', brief: briefBefore, summary: summaryBefore } : { status: 'interview' });
     throw e;
   } finally {
     // After a failure the session can be retried at once; after success the log stays a minute for late listeners.
-    if (failed) running.delete(sessionId);
-    else setTimeout(() => running.delete(sessionId), 60_000);
+    const entry = running.get(sessionId);
+    if (failed && entry) entry.failed = true;
+    setTimeout(() => { if (running.get(sessionId) === entry) running.delete(sessionId); }, failed ? 20_000 : 60_000);
   }
 }
 
 // Is this book one the reader already knows (read, shelved, recommended before)? By id, Goodreads id, or close title + author.
+// Titles are compared whole (series brackets dropped, subtitle kept), so "Dune" never hides "Dune Messiah".
+const fullTitle = (s = '') => s.toLowerCase().replace(/\(.*?\)/g, '').replace(/[^a-z0-9\u00C0-\u024F ]+/g, ' ').replace(/\s+/g, ' ').trim();
 export function isKnown(book, known) {
   if (known.ids.has(book.id) || (book.goodreads_id && known.gids.has(String(book.goodreads_id)))) return true;
-  const ln = lastName(book.author || '');
-  return known.keys.some((k) => titleMatch(k.title, book.title) >= 0.85 && (!k.author || !ln || k.author.toLowerCase().includes(ln)));
+  const t = fullTitle(book.title), ln = lastName(book.author || '');
+  if (!t) return false;
+  return known.keys.some((k) => {
+    const kt = fullTitle(k.title);
+    const sameAuthor = k.author && ln ? k.author.toLowerCase().includes(ln) : null;
+    if (kt === t) return sameAuthor !== false;
+    // "Title: Subtitle" against plain "Title" (two words or more), only when the author is known to match.
+    if (sameAuthor !== true || k.title.includes(':') === book.title.includes(':')) return false;
+    const a = fullTitle(k.title.split(':')[0]), b = fullTitle(book.title.split(':')[0]);
+    return a === b && a.split(' ').length >= 2;
+  });
 }
 
 // ---------- second opinion ----------
@@ -214,10 +237,12 @@ export function applySecondOpinion(ranked, verdicts, found) {
   for (const p of ranked.picks) route(p.candidate_index, verdicts.get(p.candidate_index), p);
   for (const r of ranked.runners_up || []) route(r.candidate_index, verdicts.get(r.candidate_index), null);
   for (const e of ranked.exceptions || []) {
-    const i = e.candidate_index; if (seen.has(i)) continue; seen.add(i);
+    const i = e.candidate_index; if (seen.has(i)) continue;
     const v = verdicts.get(i);
-    if (!v || v.fit >= EXCEPTION_FIT) exceptions.push({ ...e, check: check(v) });
-    else dropped.push({ candidate_index: i, reason: `Misses your must-have (${e.missing}) and the second look was ${VLABEL[v.verdict]}.` });
+    if (!v) { seen.add(i); exceptions.push(e); continue; }
+    if (missing(v).length && !GOOD.includes(v.verdict) && v.verdict !== 'maybe') { seen.add(i); dropped.push({ candidate_index: i, reason: `Misses your must-have (${e.missing}) and the second look was ${VLABEL[v.verdict]}.` }); continue; }
+    route(i, v, null); // the judge decides: still an exception, a full candidate after all, a runner-up, or out
+    const x = exceptions.find((q) => q.candidate_index === i); if (x) x.worth_it_because = e.worth_it_because || x.worth_it_because;
   }
   // Runners-up the judge liked fill the slate back up to three; they are written from the verdict.
   promotable.sort((a, b) => b.v.fit - a.v.fit);

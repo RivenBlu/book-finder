@@ -225,6 +225,10 @@ test('known books are caught by id, Goodreads id or close title, so they are nev
   assert.equal(isKnown({ id: 9, title: 'The City of Brass (The Daevabad Trilogy, #1)', author: 'S.A. Chakraborty' }, known), true);
   assert.equal(isKnown({ id: 9, title: 'The City of Brass', author: 'Someone Else' }, known), false);
   assert.equal(isKnown({ id: 9, title: 'Uprooted', author: 'Naomi Novik' }, known), false);
+  const k2 = { ids: new Set(), gids: new Set(), keys: [{ title: 'Dune', author: 'Frank Herbert' }, { title: 'The Night', author: '' }] };
+  assert.equal(isKnown({ id: 1, title: 'Dune Messiah', author: 'Frank Herbert' }, k2), false);
+  assert.equal(isKnown({ id: 1, title: 'The Night Circus', author: 'Erin Morgenstern' }, k2), false);
+  assert.equal(isKnown({ id: 1, title: 'Dune (Dune, #1)', author: 'Frank Herbert' }, k2), true);
 });
 
 test('gift slates stay out of the owner evidence; replaced slates stay as evidence but leave the page', () => {

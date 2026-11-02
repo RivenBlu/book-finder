@@ -265,7 +265,8 @@ function askClosed(q, { index = 0, total = 1, eyebrow = 'After reading', head = 
     if (/^[1-9]$/.test(e.key) && !isText) { const b = app.querySelectorAll('.opt')[Number(e.key) - 1]; if (b) { e.preventDefault(); b.click(); } }
     else if (e.key === 'Enter') { e.preventDefault(); document.getElementById('next').click(); }
   };
-  if (isText) free.focus();
+  // Screen readers land on the new question; sighted readers see no outline (the focus is not from the keyboard).
+  if (isText) free.focus(); else { const qt = app.querySelector('.q .text'); if (qt) { qt.tabIndex = -1; qt.focus({ preventScroll: true }); } }
 }
 
 // The after-reading debrief: closed questions for this book, one LLM-written follow-up, then saved as evidence.
@@ -465,7 +466,8 @@ async function renderQuestion(id, nx, mode, reaction) {
     else if (e.key === 'Enter') { e.preventDefault(); submit(false); }
     else if (e.key === 'Backspace' && back) { e.preventDefault(); back.click(); }
   };
-  if (isText) free.focus();
+  // Screen readers land on the new question; sighted readers see no outline (the focus is not from the keyboard).
+  if (isText) free.focus(); else { const qt = app.querySelector('.q .text'); if (qt) { qt.tabIndex = -1; qt.focus({ preventScroll: true }); } }
 }
 
 // The model-written questions failed (network, login): say so and offer a retry instead of a spinner forever.

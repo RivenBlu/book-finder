@@ -312,6 +312,7 @@ export function setReviewDigest(bookId, digest) {
 export function digestStale(book) {
   if (!book.review_digest) return true;
   if (!book.review_digest.romance) return true; // digests from before romance/series/rating fields were added
+  if (!book.digested_at) return true;           // new reviews arrived (e.g. Polish ones) since the digest was written
   const age = Date.now() - Date.parse(book.digested_at || book.fetched_at || 0);
   const recent = book.year && book.year >= new Date().getFullYear() - 1;
   return age > (recent ? 90 : 730) * 864e5;

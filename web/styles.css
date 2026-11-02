@@ -390,3 +390,5 @@ svg .star { animation: twinkle 3.2s ease-in-out infinite; transform-origin: cent
 .choose input { flex: 1; min-width: 0; }
 .chooselist { margin-top: 12px; padding-left: 1.4em; display: grid; gap: 14px; }
 .chooselist .ttl { font-family: var(--reading); font-size: 19px; font-weight: 600; }
+
+.q .text:focus { outline: none; }

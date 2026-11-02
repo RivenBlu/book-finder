@@ -5,12 +5,13 @@ import { mkdirSync } from 'node:fs';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
+import { hostname } from 'node:os';
 import { join, dirname, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as DB from './db.js';
 import { ONBOARDING, CHECKIN } from './questions.js';
 import { nextQuestion, recordAnswer, generateAdaptive, generateAnchors, onboardingDone, undoLastAnswer } from './pipeline/interview.js';
-import { runRecommendation, subscribe, progressOf, lookupBook, importGoodreadsBook, digestBook, lookupPolish } from './pipeline/recommend.js';
+import { runRecommendation, subscribe, progressOf, isRunning, lookupBook, importGoodreadsBook, digestBook, lookupPolish } from './pipeline/recommend.js';
 import { followups, recordOutcome, sayVsDo, fingerprint, reportStats, writeReport, enrichHistory, historyJob, authorNext, debriefPlan, recordDebrief, debriefFollowup, debriefPatterns } from './pipeline/insights.js';
 import { backupDatabase, listBackups, checkHealth, health, exportAll, importAll, lanStatus, setLan, lanToken } from './ops.js';
 import { reflectProfile, importHistoryCsv } from './pipeline/reflect.js';
@@ -42,9 +43,9 @@ async function body(req) {
 // The Host header is checked against a fixed list (never trusted as-is): otherwise a site whose DNS name is
 // re-pointed at 127.0.0.1 ("DNS rebinding") would look same-origin and could read the API.
 function allowedHosts() {
-  const hosts = [`localhost:${PORT}`, `127.0.0.1:${PORT}`, `[::1]:${PORT}`];
-  if (LAN) for (const ip of lanStatus().ips) hosts.push(`${ip}:${PORT}`);
-  return new Set(hosts);
+  const names = ['localhost', '127.0.0.1', '[::1]'];
+  if (LAN) names.push(...lanStatus().ips, hostname().toLowerCase(), `${hostname().toLowerCase()}.local`);
+  return new Set(names.flatMap((n) => (PORT === 80 ? [n, `${n}:80`] : [`${n}:${PORT}`])));
 }
 function hostAllowed(req) { return allowedHosts().has((req.headers.host || '').toLowerCase()); }
 function selfOrigins() { return new Set([...allowedHosts()].map((h) => `http://${h}`)); }
@@ -105,7 +106,7 @@ route('POST', '/api/sessions', async (req) => { const b = await body(req); DB.pr
 route('GET', '/api/sessions', async () => DB.listSessions(50));
 route('GET', '/api/sessions/:id', async (req, p) => {
   const s = DB.getSession(Number(p.id)); if (!s) throw httpError(404, 'no such session');
-  return { ...s, answers: DB.getAnswers(s.id), recommendations: DB.getRecommendations(s.id).map(withShelves), running: !!progressOf(s.id) };
+  return { ...s, answers: DB.getAnswers(s.id), recommendations: DB.getRecommendations(s.id).map(withShelves), running: isRunning(s.id) };
 });
 route('DELETE', '/api/sessions/:id', async (req, p) => { DB.db.prepare('DELETE FROM sessions WHERE id = ?').run(Number(p.id)); return { ok: true }; });
 route('GET', '/api/sessions/:id/next', async (req, p) => nextQuestion(Number(p.id)));
@@ -116,7 +117,7 @@ route('POST', '/api/sessions/:id/anchors', async (req, p) => { const qs = await 
 route('POST', '/api/sessions/:id/recommend', async (req, p) => {
   const id = Number(p.id);
   if (!DB.getSession(id)) throw httpError(404, 'no such session');
-  if (progressOf(id)) return { started: false, running: true };
+  if (isRunning(id)) return { started: false, running: true };
   runRecommendation(id).catch((e) => console.error('[recommend]', e));
   return { started: true };
 });
@@ -127,6 +128,7 @@ route('GET', '/api/sessions/:id/events', async (req, p, res) => {
   const r = progressOf(id);
   if (!r) { send({ step: 'idle', msg: 'not running' }); res.end(); return null; }
   for (const ev of r.log) send(ev);
+  if (r.failed) { res.end(); return null; }
   const off = subscribe(id, (ev) => { send(ev); if (ev.step === 'done' || ev.step === 'error') { off(); res.end(); } });
   req.on('close', off);
   return null;
