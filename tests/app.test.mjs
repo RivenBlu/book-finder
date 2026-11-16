@@ -354,3 +354,27 @@ test('a pick has two separate answers: where it is kept and what she thinks of i
   DB.setRecommendationReaction(r, null);
   assert.ok(feedbackDigest().some((l) => l.includes('Two Answers') && !l.includes('suggestion')));
 });
+
+test('Goodreads pushing back: everything pauses together, resumes, and gives up cleanly when it stays blocked', async () => {
+  const G = await import('../src/sources/goodreads.js');
+  const realFetch = globalThis.fetch; const cfg = { ...G.gateConfig };
+  Object.assign(G.gateConfig, { gap: 1, pauses: [20, 20, 20], retryWait: 1 });
+  const page = '<html>' + 'x'.repeat(3000) + '</html>';
+  try {
+    // 1) refused seven times, then it answers: the request waits through the pauses and succeeds
+    G.resetGoodreadsGate(); let calls = 0; const pauses = [];
+    G.onGoodreadsPause((sec) => pauses.push(sec));
+    globalThis.fetch = async () => (++calls <= 7 ? { status: 202, ok: true, text: async () => '' } : { status: 200, ok: true, text: async () => page });
+    const tryOnce = () => G.searchGoodreads('anything').then(() => 'ok', (e) => (e.blocked ? 'blocked' : 'failed'));
+    const first = await Promise.all([tryOnce(), tryOnce(), tryOnce()]);
+    assert.ok(first.includes('ok'), `one of the parallel requests got through: ${first}`);
+    assert.ok(pauses.length >= 1 && pauses.length <= 3, `paused ${pauses.length} times`);
+    assert.equal(G.goodreadsBlocked(), false);
+    // 2) refused forever: after the last pause the address counts as blocked and nobody keeps asking
+    G.resetGoodreadsGate(); calls = 0;
+    globalThis.fetch = async () => { calls++; return { status: 202, ok: true, text: async () => '' }; };
+    const all = []; for (let i = 0; i < 6; i++) all.push(await tryOnce());
+    assert.ok(all.includes('blocked')); assert.equal(G.goodreadsBlocked(), true);
+    const before = calls; assert.equal(await tryOnce(), 'blocked'); assert.equal(calls, before, 'no request is sent while blocked');
+  } finally { globalThis.fetch = realFetch; Object.assign(G.gateConfig, cfg); G.resetGoodreadsGate(); G.onGoodreadsPause(null); }
+});

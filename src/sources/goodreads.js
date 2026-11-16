@@ -15,17 +15,47 @@ export function decodeHtml(s = '') {
     .trim();
 }
 
-// Goodreads answers throttled requests with an empty 202. Wait and retry a few times before giving up.
+// Goodreads limits how many pages one address may read in a while, and answers the excess with an empty 202.
+// So every request here goes through one polite queue: a short gap between requests, and when Goodreads pushes back
+// three times in a row everything pauses together (45 s, then 90 s, then 3 min) instead of each book failing on its own.
+// After the third pause the address counts as blocked for now, and callers stop asking.
+export const gateConfig = { gap: 650, pauses: [45_000, 90_000, 180_000], retryWait: 1500 };
+const gate = { next: 0, until: 0, strikes: 0, level: 0, blockedAt: 0, listener: null };
+export function onGoodreadsPause(fn) { gate.listener = fn; }
+// Blocked: Goodreads kept refusing through all the pauses. Callers should stop for now; it clears itself after 20 minutes.
+export function goodreadsBlocked() { if (gate.blockedAt && Date.now() - gate.blockedAt > 20 * 60_000) { gate.blockedAt = 0; gate.level = 0; gate.strikes = 0; } return !!gate.blockedAt; }
+export function resetGoodreadsGate() { Object.assign(gate, { next: 0, until: 0, strikes: 0, level: 0, blockedAt: 0 }); }
+async function turn() {
+  const now = Date.now();
+  const at = Math.max(now, gate.next, gate.until);
+  gate.next = at + gateConfig.gap + Math.random() * gateConfig.gap * 0.6;
+  if (at > now) await sleep(at - now);
+}
+function pushedBack() {
+  gate.strikes++;
+  if (gate.strikes < 3 || Date.now() < gate.until) return;
+  gate.strikes = 0;
+  if (gate.level >= gateConfig.pauses.length) { gate.blockedAt = Date.now(); return; }
+  const ms = gateConfig.pauses[gate.level++];
+  gate.until = Date.now() + ms; gate.next = Math.max(gate.next, gate.until);
+  try { gate.listener?.(Math.round(ms / 1000)); } catch {}
+}
+function blockedError() { return Object.assign(new Error('Goodreads is not answering right now'), { blocked: true }); }
 async function getHtml(url, { tries = 4 } = {}) {
   let last = '';
   for (let i = 0; i < tries; i++) {
+    if (goodreadsBlocked()) throw blockedError();
+    await turn();
+    if (goodreadsBlocked()) throw blockedError();
     const r = await fetch(url, { headers: H, signal: AbortSignal.timeout(20000) });
-    if (r.status === 429 || r.status === 503) { await sleep(3000 * (i + 1)); last = `goodreads ${r.status}`; continue; }
+    if (r.status === 429 || r.status === 503) { last = `goodreads ${r.status}`; pushedBack(); await sleep(gateConfig.retryWait * (i + 1)); continue; }
     if (!r.ok) throw new Error(`goodreads ${r.status}`);
     const html = await r.text();
-    if (r.status === 202 || html.length < 2000) { await sleep(2500 * (i + 1) + Math.random() * 1500); last = 'goodreads throttled (empty 202)'; continue; }
+    if (r.status === 202 || html.length < 2000) { last = 'goodreads throttled (empty 202)'; pushedBack(); await sleep(gateConfig.retryWait * (i + 1) * (1 + Math.random() * 0.6)); continue; }
+    gate.strikes = 0;
     return html;
   }
+  if (goodreadsBlocked()) throw blockedError();
   throw new Error(last || 'goodreads: no response');
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

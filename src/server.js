@@ -195,7 +195,7 @@ route('GET', '/api/sessions/:id/export', async (req, p, res) => {
 route('GET', '/api/moods', async () => DB.moodLog(60));
 
 // ---------- learning: loop closer, evidence, reports, history enrichment, author next, notes ----------
-route('GET', '/api/followups', async (req) => followups(Number(new URL(req.url, 'http://x').searchParams.get('exclude')) || null));
+route('GET', '/api/followups', async (req) => { const q = new URL(req.url, 'http://x').searchParams; return followups(Number(q.get('exclude')) || null, q.get('all') === '1'); });
 route('POST', '/api/recommendations/:id/outcome', async (req, p) => { const b = await body(req); return recordOutcome(Number(p.id), b); });
 route('GET', '/api/insights', async () => ({ sayVsDo: sayVsDo(), fingerprint: fingerprint(), afterReading: debriefPatterns() }));
 // Past picks: every slate with what became of each book.
@@ -269,7 +269,7 @@ route('POST', '/api/recommendations/:id/reaction', async (req, p) => {
   DB.setRecommendationReaction(Number(p.id), b.reaction ?? null, String(b.note || '').trim() || null);
   if (b.reaction === 'hate' && b.note) DB.setFact({ key: 'rejected_' + rec.book_id, value: { note: String(b.note).trim() }, kind: 'trait', confidence: 0.7, source: 'feedback', note: 'Called a bad suggestion' });
   else DB.db.prepare("UPDATE profile_facts SET active = 0 WHERE key = ? AND note = 'Called a bad suggestion'").run('rejected_' + rec.book_id);
-  return DB.db.prepare('SELECT id, book_id, feedback, feedback_note, reaction, reaction_note FROM recommendations WHERE id = ?').get(Number(p.id));
+  return DB.recommendationRow(Number(p.id));
 });
 
 // ---------- shelves ----------

@@ -169,8 +169,9 @@ export async function generateAdaptive(sessionId) {
     // The model sometimes still writes its own "either / doesn't matter" option; the page's own answer replaces it.
     // An older habit of the model in a pair: a short handle in the label and the blurb in the hint. The page shows the blurb as the answer.
     const shaped = q.options.map((o, j) => (q.type === 'pair' && o.hint && o.label.length < 40 ? { id: o.id || `o${j + 1}`, label: o.hint, hint: '' } : { id: o.id || `o${j + 1}`, label: o.label, hint: o.hint || '' }));
-    const real = shaped.filter((o) => !/^(either|both|any|all)\b|no preference|does ?n[o']t matter|whatever/i.test(o.label.trim()));
-    const options = real.length >= 2 ? real : shaped;
+    // Only a whole label that says "I don't mind" is dropped ("Any love thread, even a quiet one" is a real answer), and never in a ladder.
+    const real = shaped.filter((o) => !/^(either|both|any|all)( of (these|them|the above))?( is| are)?( fine| ok(ay)?| works?)?[.!]?$|^no preference|^(it )?does ?n[o'’]t matter|^whatever[.!]?$/i.test(o.label.trim()));
+    const options = !ladder && real.length >= 2 ? real : shaped;
     return {
       id: `adaptive_${i + 1}_${(q.id || 'q').replace(/^adaptive_/, '').replace(/\W+/g, '_').slice(0, 40)}`,
       must: must || undefined,

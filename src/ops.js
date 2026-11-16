@@ -35,9 +35,9 @@ export const health = { checkedAt: null, goodreadsSearch: null, goodreadsPage: n
 export async function checkHealth() {
   const problems = [];
   try { const r = await searchGoodreads('Piranesi Susanna Clarke', { limit: 3 }); health.goodreadsSearch = r.length > 0; if (!r.length) problems.push('Goodreads search returned no rows (layout changed or throttled).'); }
-  catch (e) { health.goodreadsSearch = false; problems.push('Goodreads search failed: ' + e.message); }
+  catch (e) { health.goodreadsSearch = false; problems.push(/throttled|not answering/.test(e.message) ? 'Goodreads is not answering this address right now (it limits how many pages can be read in a while). Searches will wait and retry; it usually clears within the hour.' : 'Goodreads search failed: ' + e.message); }
   try { const b = await fetchGoodreadsBook('50202953'); health.goodreadsPage = !!(b.title && b.reviews?.length); if (!health.goodreadsPage) problems.push('Goodreads book page parsed without reviews.'); }
-  catch (e) { health.goodreadsPage = false; problems.push('Goodreads book page failed: ' + e.message); }
+  catch (e) { health.goodreadsPage = false; if (!/throttled|not answering/.test(e.message)) problems.push('Goodreads book page failed: ' + e.message); }
   try { const r = await searchLubimyczytac('Piranesi Clarke'); health.lubimyczytac = r.length > 0; if (!r.length) problems.push('lubimyczytac.pl search returned nothing.'); }
   catch (e) { health.lubimyczytac = false; problems.push('lubimyczytac.pl failed: ' + e.message); }
   health.checkedAt = DB.now(); health.problems = problems;

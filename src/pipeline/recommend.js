@@ -1,11 +1,11 @@
 // The recommendation pipeline: brief -> long list -> enrich with real data -> digest real reviews -> final slate.
 // Three shapes: a slate for tonight (full/quick), a READING PATH (books in order over weeks), and a GIFT for someone else.
 import { ask } from '../llm.js';
-import { searchGoodreads, fetchGoodreadsBook } from '../sources/goodreads.js';
+import { searchGoodreads, fetchGoodreadsBook, onGoodreadsPause, goodreadsBlocked } from '../sources/goodreads.js';
 import { searchOpenLibrary } from '../sources/openlibrary.js';
 import { searchLubimyczytac, fetchLubimyczytacBook } from '../sources/lubimyczytac.js';
 import { searchHardcover } from '../sources/hardcover.js';
-import { getSession, updateSession, getSetting, upsertBook, getBook, getBookByGoodreadsId, findBookByTitle, setReviewDigest, addRecommendation, getRecommendations, setRecommendationFeedback, latestVerdict, addAnswer, digestStale, knownBooks, now as dbNow, db } from '../db.js';
+import { getSession, updateSession, getSetting, upsertBook, getBook, getBookByGoodreadsId, findBookByTitle, setReviewDigest, addRecommendation, getRecommendations, setRecommendationFeedback, setRecommendationReaction, REMOVED_NOTE, latestVerdict, addAnswer, digestStale, knownBooks, now as dbNow, db } from '../db.js';
 import { BRIEF_SCHEMA, BRIEF_SYSTEM, CANDIDATES_SCHEMA, CANDIDATES_SYSTEM, DIGEST_SCHEMA, DIGEST_SYSTEM, RANK_SCHEMA, RANK_SYSTEM, PATH_BRIEF_SCHEMA, PATH_BRIEF_SYSTEM, PATH_RANK_SCHEMA, PATH_RANK_SYSTEM } from '../prompts.js';
 import { fullContext, excludeList, answersDigest } from './context.js';
 import { verdictFor } from './talk.js';
@@ -45,7 +45,7 @@ export function progressOf(sessionId) {
 }
 export function isRunning(sessionId) {
   const r = running.get(sessionId);
-  return !!r && !r.failed;
+  return !!r && !r.failed && !r.done;
 }
 export function subscribe(sessionId, fn) {
   const r = running.get(sessionId);
@@ -128,13 +128,18 @@ export async function runRecommendation(sessionId, { instant = false } = {}) {
 
     // 3. Enrich with real data (Goodreads page per book, cached)
     log('enrich', 'Fetching real descriptions, ratings and reviews...');
+    onGoodreadsPause((sec) => log('enrich', `Goodreads asked me to slow down. Waiting ${sec >= 60 ? `${Math.round(sec / 60)} min` : `${sec} seconds`}, then carrying on.`));
+    let saidBlocked = false;
     const enriched = await mapLimit(longlist, 3, async (c) => {
       try {
         const book = await enrichCandidate(c, { polish });
         if (book) log('enrich', `Found: ${book.title} (${book.ratings_count?.toLocaleString() || '?'} ratings, ${book.reviews?.length || 0} reviews)`, { book: card(book) });
         else log('enrich', `Could not verify: ${c.title} - ${c.author}`);
         return book ? { candidate: c, book } : null;
-      } catch (e) { log('enrich', `Failed: ${c.title}: ${e.message}`); return null; }
+      } catch (e) {
+        if (e.blocked) { if (!saidBlocked) { saidBlocked = true; log('enrich', 'Goodreads has stopped answering for now. Carrying on with the books I already have.'); } return null; }
+        log('enrich', `Could not fetch: ${c.title} (${/throttled|429|503/.test(e.message) ? 'Goodreads did not answer' : e.message})`); return null;
+      }
     });
     // Code-level guards: the same book twice (omnibus vs. book 1, translated title), books already read, shelved,
     // recommended or rejected (the model sometimes forgets the list or proposes a known book under another title),
@@ -148,6 +153,9 @@ export async function runRecommendation(sessionId, { instant = false } = {}) {
       if (known && !x.candidate.reread && isKnown(x.book, known)) { skipped.known++; log('enrich', `Skipped (you already know it): ${x.book.title}`, { drop: { id: x.book.id, reason: 'You already know this one (read, saved or suggested before).' } }); continue; }
       if (maxPages && x.book.pages && x.book.pages > maxPages * 1.15) { skipped.long++; log('enrich', `Skipped (${x.book.pages} pages, over your ${maxPages}): ${x.book.title}`, { drop: { id: x.book.id, reason: `${x.book.pages} pages, over your limit of ${maxPages}.` } }); continue; }
       found.push(x);
+    }
+    if (goodreadsBlocked() && found.length < 5) {
+      throw new Error(`Goodreads is not answering right now, so I could only read up on ${found.length === 1 ? 'one book' : `${found.length} books`}. It limits how many pages one address may open in a while, and today's searches used that up. Nothing is lost: your answers are saved. Search again in about half an hour, or use "Fast pick", which needs only the books already researched.`);
     }
     if (found.length < 3) {
       const unverified = enriched.filter((x) => !x).length;
@@ -244,10 +252,11 @@ export async function runRecommendation(sessionId, { instant = false } = {}) {
     updateSession(sessionId, statusBefore === 'recommended' ? { status: 'recommended', brief: briefBefore, summary: summaryBefore } : { status: 'interview' });
     throw e;
   } finally {
-    keepers.delete(sessionId);
+    keepers.delete(sessionId); onGoodreadsPause(null);
     // After a failure the session can be retried at once; after success the log stays a minute for late listeners.
     const entry = running.get(sessionId);
     if (failed && entry) entry.failed = true;
+    else if (entry) entry.done = true; // finished: the log lingers for late listeners, but the session is free for the next action
     setTimeout(() => { if (running.get(sessionId) === entry) running.delete(sessionId); }, failed ? 20_000 : 60_000);
   }
 }
@@ -328,8 +337,14 @@ export function applySecondOpinion(ranked, verdicts, found) {
   // The ranker's note talks about its own picks; once any of them is removed it would contradict the page, so it is replaced.
   let note = removed.length || moved.length ? [
     removed.length ? `After a second, stricter look I took out ${removed.join(', ')}; the reasons are under "The brief".` : '',
-    moved.length ? `${moved.join(', ')} ${moved.length > 1 ? 'miss' : 'misses'} one of your must-haves, so ${moved.length > 1 ? 'they are' : 'it is'} under "Worth breaking a must-have?".` : '',
+    moved.length ? `${moved.join(', ')} ${moved.length > 1 ? 'miss' : 'misses'} one of your must-haves, so ${moved.length > 1 ? 'they are' : 'it is'} under "Near misses" below.` : '',
   ].filter(Boolean).join(' ') : ranked.note_to_reader || '';
+  // Same when the second look ADDED books: a note that says "a thin slate, only one book" above a list of four is wrong.
+  const added = picks.filter((q) => q.promoted).length;
+  if (added && !removed.length && !moved.length) {
+    const first = ranked.picks.length;
+    note = `My first ranking chose ${first === 1 ? 'one book' : `${first} books`}. A second look at every candidate against its real reviews found ${added === 1 ? 'one more that fits' : `${added} more that fit`} well enough to show; ${added === 1 ? 'it is' : 'they are'} marked "also a good fit". The list is in order of fit for today.`;
+  } else if (added) note += ` The second look also added ${added === 1 ? 'one book' : `${added} books`}, marked "also a good fit".`;
   if (!picks.length) {
     const tally = {};
     for (const [, v] of verdicts) for (const m of missing(v)) { const k = m.split(' (')[0].trim(); tally[k] = (tally[k] || 0) + 1; }
@@ -374,6 +389,7 @@ function mustReport(brief, verdicts) {
 
 // The second search: asked only when fewer than two books passed the must-haves. It sees what failed and why.
 async function rescueRound({ brief, found, verdicts, sessionId, log, polish, excludes, known, web }) {
+  if (goodreadsBlocked()) { log('rescue', 'A second search would help here, but Goodreads is not answering right now, so I am working with the books I have.'); return []; }
   log('rescue', 'Too few books passed your must-haves. Searching once more, narrowly...');
   const judged = [...verdicts].map(([i, v]) => `${found[i].book.title} - ${found[i].book.author}: ${v.must_haves_missing?.length ? 'FAILED: ' + v.must_haves_missing.join('; ') : `${VLABEL[v.verdict]}, ${v.fit}%`}`);
   const list = (await ask({
@@ -439,8 +455,8 @@ export async function enrichCandidate(c, { polish = false } = {}) {
     return cached;
   }
   let results = [];
-  try { results = await searchGoodreads(c.search_query || `${c.title} ${c.author}`, { limit: 8 }); } catch { results = []; }
-  if (!results.length) { try { results = await searchGoodreads(c.title, { limit: 8 }); } catch { results = []; } }
+  try { results = await searchGoodreads(c.search_query || `${c.title} ${c.author}`, { limit: 8 }); } catch (e) { if (e.blocked) throw e; results = []; }
+  if (!results.length) { try { results = await searchGoodreads(c.title, { limit: 8 }); } catch (e) { if (e.blocked) throw e; results = []; } }
   if (!results.length) {
     // Goodreads search blocked or empty: resolve an ISBN via Open Library and open the Goodreads page by ISBN.
     try {
@@ -564,6 +580,14 @@ export async function importGoodreadsBook(goodreadsId) {
   return getBook(upsertBook(full));
 }
 
+// A re-ranked or re-added row replaces the old one; what she already said about the book moves to the new row.
+function carryAnswers(o, newId) {
+  if (!newId || !o) return;
+  let outcome = o.outcome || null; if (typeof outcome === 'string') { try { outcome = JSON.parse(outcome); } catch { outcome = null; } }
+  if (o.feedback) setRecommendationFeedback(newId, o.feedback, o.feedback_note, outcome);
+  if (o.reaction) setRecommendationReaction(newId, o.reaction, o.reaction_note);
+}
+
 // ---------- adjusting a finished slate without new research ----------
 // "More romance", "better written", "like the second one": the books already researched for this session are ranked
 // again for the change she asks for. One model call, no fetching.
@@ -576,7 +600,9 @@ export async function nudgeSlate(sessionId, text) {
   const recs = getRecommendations(sessionId);
   const old = new Map(recs.map((r) => [r.book_id, r]));
   const ids = [...new Set([...(brief.pool || []), ...recs.map((r) => r.book_id)])];
-  const books = ids.map((id) => getBook(id)).filter((b) => b && old.get(b.id)?.feedback !== 'not_for_me');
+  // Books she rejected, called a bad suggestion or took off the list do not come back in a re-ranked list.
+  const out = (o) => !!o && (o.feedback === 'not_for_me' || o.reaction === 'hate' || o.feedback_note === REMOVED_NOTE);
+  const books = ids.map((id) => getBook(id)).filter((b) => b && !out(old.get(b.id)));
   if (books.length < 2) throw new Error('Too few researched books to choose from; run a new search.');
   const gift = session.mode === 'gift';
   const ctx = gift ? { session_answers: answersDigest(sessionId) } : fullContext(sessionId);
@@ -584,12 +610,12 @@ export async function nudgeSlate(sessionId, text) {
   const packed = books.map((b, i) => ({
     index: i, title: b.title, author: b.author, year: b.year, pages: b.pages, genres: b.genres.slice(0, 8), rating: b.rating, ratings_count: b.ratings_count, rating_dist_1to5: b.rating_dist,
     description: (b.description || '').slice(0, 700), review_digest: b.review_digest || null, earlier_judgement: gift ? undefined : judgement(b),
-    on_the_list_now_as: old.get(b.id)?.fit?.kind || 'set aside earlier', her_reaction: old.get(b.id)?.feedback || undefined,
+    on_the_list_now_as: old.get(b.id)?.fit?.kind || 'set aside earlier', her_reaction: [old.get(b.id)?.feedback, old.get(b.id)?.reaction === 'love' ? 'she called this a great suggestion' : ''].filter(Boolean).join('; ') || undefined,
   }));
   const nudges = [...(brief.nudges || []), { text, at: dbNow() }];
   const prompt = `BRIEF (JSON):\n${JSON.stringify({ ...brief, pool: undefined, dropped: undefined, must_report: undefined, nudges: undefined }, null, 1)}\n\nREADER DNA:\n${gift ? '(gift: not applicable)' : ctx.reader_dna || '(none yet)'}\n\nTODAY'S ANSWERS:\n${JSON.stringify(ctx.session_answers, null, 1)}\n\nADJUSTMENT. The reader has seen the current list and asks for a change, in her words: "${text}".${nudges.length > 1 ? ` Earlier adjustments in this session, oldest first: ${nudges.slice(0, -1).map((n) => `"${n.text}"`).join(', ')}.` : ''}\nRank the SAME researched candidates again for that. Where the adjustment and the original brief conflict, the adjustment wins, except for must-haves and hard excludes, which stand unless she explicitly lifts one. A book whose earlier_judgement lists must_haves_missing stays out of the picks unless the adjustment lifts that must-have. "More like <a book on the list>" means its appeal factors, read from its digest. In each why_now say how the book answers the adjustment. If these candidates cannot honestly deliver the change, pick the few that come closest and say plainly in note_to_reader that a fresh search would do better; never pad.\n\nENRICHED CANDIDATES (JSON, index = candidate_index):\n${JSON.stringify(packed, null, 1)}\n\nChoose the slate.`;
   const ranked = (await ask({ system: RANK_SYSTEM, schema: RANK_SCHEMA, tier: getSetting('tier_rank', 'best'), effort: 'medium', prompt })).data;
-  const carry = (bookId, newId) => { const o = old.get(bookId); if (newId && o?.feedback) setRecommendationFeedback(newId, o.feedback, o.feedback_note, o.outcome || null); };
+  const carry = (bookId, newId) => carryAnswers(old.get(bookId), newId);
   const chk = (b) => check(latestVerdict(b.id)?.verdict);
   saveSlate(sessionId, (add) => {
     let rank = 1;
@@ -612,7 +638,10 @@ export async function addBookToSlate(sessionId, bookId) {
   let v = null; try { v = session.mode === 'gift' ? null : await verdictFor(bookId, { sessionId }); } catch {}
   db.prepare('UPDATE recommendations SET superseded_at = ? WHERE session_id = ? AND book_id = ? AND superseded_at IS NULL').run(dbNow(), sessionId, bookId);
   const rank = Math.max(0, ...recs.filter((r) => r.fit?.kind === 'pick').map((r) => r.rank || 0)) + 1;
-  addRecommendation({ sessionId, bookId, rank, slot: 'added by you', fit: { ...pickFromVerdict(0, v, 'added by you', { kept: true }), candidate_index: undefined, kind: 'pick' } });
+  const newId = addRecommendation({ sessionId, bookId, rank, slot: 'added by you', fit: { ...pickFromVerdict(0, v, 'added by you', { kept: true }), candidate_index: undefined, kind: 'pick' } });
+  const prior = recs.find((r) => r.book_id === bookId);
+  // Adding a book back clears "removed"; anything else she said about it is kept.
+  carryAnswers(prior && prior.feedback_note === REMOVED_NOTE ? { ...prior, feedback: null } : prior, newId);
   const brief = session.brief || {};
   updateSession(sessionId, { brief: { ...brief, dropped: (brief.dropped || []).filter((d) => d.book_id !== bookId) } });
   return { ok: true };

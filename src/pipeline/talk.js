@@ -134,7 +134,7 @@ export function exportSlateMarkdown(sessionId) {
     L.push('');
   });
   const exceptions = recs.filter((r) => r.fit?.kind === 'exception');
-  if (exceptions.length) { L.push('## Worth breaking a must-have?', ''); for (const r of exceptions) L.push(`- **${r.title}** (${r.author}): misses "${r.fit.missing}". ${r.fit.worth_it_because}`); L.push(''); }
+  if (exceptions.length) { L.push('## Near misses: good books that break one must-have', ''); for (const r of exceptions) L.push(`- **${r.title}** (${r.author}): misses "${r.fit.missing}". ${r.fit.worth_it_because}`); L.push(''); }
   if (runners.length) { L.push('## Also considered', ''); for (const r of runners) L.push(`- **${r.title}** (${r.author}): ${r.fit.one_line}`); L.push(''); }
   if (b.dropped?.length) { L.push('## Dropped after reading reviews', ''); for (const d of b.dropped) L.push(`- ${d.title}: ${d.reason}`); L.push(''); }
   L.push('---', 'Made with Book Finder from real Goodreads reviews.');

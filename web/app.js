@@ -111,6 +111,9 @@ sizeBtns.forEach(b => b.onclick = () => {
 });
 showSize();
 
+// Go to a page, also when it is the page already shown (setting the same hash fires no event, so nothing would redraw).
+const go = (hash) => { if (location.hash === '#' + hash) router(); else location.hash = hash; };
+
 // ---------- router ----------
 const routes = { home, interview, results, shelves, profile, history, settings, book, session: results, check, followups: followupsPage, report, past, debrief: debriefPage, trainer };
 async function router() {
@@ -150,9 +153,9 @@ async function home() {
     <div class="modes-wrap">
       <div class="modes-head"><span class="eyebrow">${first ? 'Start here' : 'A new report'}</span><span class="cap sec">${first ? 'The first interview also builds your taste profile. After that, every option below ends in a page of books with real reviews.' : 'Each one ends in a page of books, with real reviews and honest reasons.'}</span></div>
       <div class="modes">
-        <button class="mode primary" data-mode="full"><span class="t">${first ? 'Start the interview' : 'Find my next book'}</span><span class="d">${first ? 'About 17 questions about your taste, asked once, then 12 about right now. Then a ranked list of books with real reviews.' : 'The full interview: twelve questions about right now and two or three follow-ups, then a ranked list of books chosen for today.'}</span><span class="k">${first ? 'About twelve minutes · press 1 to 9 to answer' : 'About eight minutes · press 1 to 9 to answer'}</span></button>
-        <button class="mode" data-mode="quick" ${first ? 'disabled' : ''}><span class="t">Quick picks</span><span class="d">Six questions, the same report. For when you already know the mood and want the books.</span><span class="k">${first ? 'After the first interview' : 'About two minutes'}</span></button>
-        <button class="mode" data-mode="path" ${first ? 'disabled' : ''}><span class="t">A reading path</span><span class="d">Two to four books in order over a few weeks, from where you are to where you want to be. Each one moves you a step.</span><span class="k">${first ? 'After the first interview' : 'About ten questions, then the plan'}</span></button>
+        <button class="mode primary" data-mode="full"><span class="t">${first ? 'Start the interview' : 'Find my next book'}</span><span class="d">${first ? 'About 17 questions about your taste, asked once, then 13 about right now. Then a ranked list of books with real reviews.' : 'The full interview: thirteen questions about right now and a few follow-ups written for you, then a ranked list of books chosen for today.'}</span><span class="k">${first ? 'About twelve minutes · press 1 to 9 to answer' : 'About eight minutes · press 1 to 9 to answer'}</span></button>
+        <button class="mode" data-mode="quick" ${first ? 'disabled' : ''}><span class="t">Quick picks</span><span class="d">Eight questions and a few follow-ups, the same report. For when you already know the mood and want the books.</span><span class="k">${first ? 'After the first interview' : 'About four minutes'}</span></button>
+        <button class="mode" data-mode="path" ${first ? 'disabled' : ''}><span class="t">A reading path</span><span class="d">Two to four books in order over a few weeks, from where you are to where you want to be. Each one moves you a step.</span><span class="k">${first ? 'After the first interview' : 'About fifteen questions, then the plan'}</span></button>
         <button class="mode" data-mode="gift"><span class="t">A gift for someone else</span><span class="d">Eight questions about them. Your own taste stays out of it. The picks land on your Gifts shelf.</span><span class="k">Birthday, hard time, just because</span></button>
       </div>
       ${first ? '' : raw(h`<p class="cap sec modes-foot">Your taste profile is what every report starts from${st.tasteConfirmedAt ? `; you last confirmed it ${when(st.tasteConfirmedAt)}` : ''}. <a href="#" id="redoTaste">Revisit the taste questions</a> when it has drifted, <a href="#trainer">teach it with books you already know</a>, or <a href="#profile">read your Reader DNA</a>.</p>`)}
@@ -222,7 +225,7 @@ const reactionFor = (q, answer, text) => { const m = REACT[q.id]; if (!m) return
 
 async function interview(id) {
   const s = await get(`/api/sessions/${id}`);
-  if (s.status === 'recommended') return (location.hash = `results/${id}`);
+  if (s.status === 'recommended') return go(`results/${id}`);
   if (s.status === 'researching' || s.running) return renderProgress(id);
   // Loop closer: before a new interview, ask what happened with the last picks (once per session).
   let asked = false; try { asked = sessionStorage.getItem('bf-fu-' + id) === '1'; } catch {}
@@ -308,7 +311,9 @@ function askOutcome(r, { index = 0, total = 1, eyebrow = 'What happened', previo
   window.onkeydown = (e) => {
     if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); next.click(); } return; }
     if (/^[1-6]$/.test(e.key)) { e.preventDefault(); pick(OUTCOMES[Number(e.key) - 1][0]); }
-    else if (e.key === 'Enter') { e.preventDefault(); next.click(); }
+    // Enter saves only when the Save button is on screen (the "forgot" answer has its own two buttons), and never
+    // takes over a focused button such as "Skip for now".
+    else if (e.key === 'Enter' && !next.hidden && e.target.tagName !== 'BUTTON') { e.preventDefault(); next.click(); }
   };
 }
 
@@ -371,7 +376,7 @@ async function runDebrief(base, done, skip) {
     if (i >= qs.length) return followup();
     const q = qs[i];
     askClosed(q, { index: i, total: qs.length + 1, head, reaction }, (a) => {
-      if (!a.skipped) { if (q.type === 'text') text = a.text; else { answers[q.id] = a.answer; if (a.text) answers[q.id + '_text'] = a.text; } }
+      if (!a.skipped) { if (q.type === 'text') text = a.text; else { if (!(Array.isArray(a.answer) && !a.answer.length)) answers[q.id] = a.answer; if (a.text) answers[q.id + '_text'] = a.text; } }
       i++; stepQ(a.skipped ? 'Skipped.' : REACTIONS[q.id] || 'Noted.');
     });
   };
@@ -409,9 +414,9 @@ function renderFollowups(list, done) {
   };
   step();
 }
-async function followupsPage() {
-  const fu = await get('/api/followups');
-  if (!fu.length) { app.innerHTML = h`<div class="interview"><div class="q"><div class="eyebrow">What happened</div><div class="text">Nothing waiting. Every pick has an outcome.</div><p class="help">You can still change any outcome from <a href="#past">Past picks</a>.</p><p><a class="btn" href="#home">Home</a></p></div></div>`; return; }
+async function followupsPage(which) {
+  const fu = await get(`/api/followups${which === 'all' ? '?all=1' : ''}`);
+  if (!fu.length) { app.innerHTML = h`<div class="interview"><div class="q"><div class="eyebrow">What happened</div><div class="text">Nothing waiting right now.</div><p class="help">You can still change any outcome from <a href="#past">Past picks</a>.</p><p><a class="btn" href="#home">Home</a></p></div></div>`; return; }
   renderFollowups(fu, () => { toast('Thank you. That teaches the tool.'); location.hash = 'home'; });
 }
 
@@ -464,7 +469,7 @@ async function past() {
   const MODE = { quick: 'quick check-in', path: 'reading path', gift: 'gift for someone else', full: 'full interview' };
   const total = list.reduce((a, s) => a + s.picks.filter((p) => !['runner_up', 'exception'].includes(p.fit?.kind)).length, 0);
   const untold = list.reduce((a, s) => a + s.picks.filter((p) => !['runner_up', 'exception'].includes(p.fit?.kind) && !p.feedback && s.mode !== 'gift').length, 0);
-  app.innerHTML = h`<section class="section" style="padding-top:8px"><div class="row between"><h1>Past picks</h1>${untold ? raw(h`<a class="btn sm primary" href="#followups">Tell me about the ${untold} without an outcome</a>`) : ''}</div>
+  app.innerHTML = h`<section class="section" style="padding-top:8px"><div class="row between"><h1>Past picks</h1>${untold ? raw(h`<a class="btn sm primary" href="#followups/all">Tell me about the ${untold} without an outcome</a>`) : ''}</div>
     <p class="sec" style="margin-top:12px;max-width:65ch">Every report the tool has written, newest first, and what became of each book. ${total ? `${total} ${total === 1 ? 'pick' : 'picks'} so far.` : ''} Open a report to reread it; use "What happened?" on any book to record, rate, review or correct it. Everything you say here feeds the next recommendation.</p></section>
   ${list.length ? list.map((s) => raw(h`<section class="section pastsess">
     <div class="row between" style="align-items:flex-start"><div><div class="eyebrow">${when(s.started_at)} · ${MODE[s.mode] || s.mode}${s.status === 'researching' ? ' · still researching' : ''}</div>${s.reader_now ? raw(h`<p class="readernow" style="margin-top:10px;font-size:18px;max-width:65ch">${s.reader_now}</p>`) : ''}</div><div class="row noprint"><a class="btn sm" href="#results/${s.id}">Open the report</a><button class="btn sm ghost" data-del="${s.id}" title="Delete this report">✕</button></div></div>
@@ -508,9 +513,9 @@ async function renderQuestion(id, nx, mode, reaction) {
     <div class="text">${q.text}</div>
     ${q.help ? raw(h`<p class="help">${q.help}</p>`) : ''}
     ${q.previous ? raw(h`<div class="prev">Last time: <b>${(q.previous.labels || []).join(', ')}${q.previous.text ? (q.previous.labels?.length ? ' · ' : '') + q.previous.text : ''}</b>. Press Enter to keep it, or change it.</div>`) : ''}
-    ${isText ? raw(h`<textarea id="free" placeholder="${q.placeholder || ''}">${prevText}</textarea>${q.suggestions?.length ? raw(h`<div class="sugg"><span class="cap sec">You asked for this before. Tap to use it again:</span>${q.suggestions.map((x) => raw(h`<button type="button" class="chip" data-sug="${x.text}">${x.text.slice(0, 90)}</button>`))}</div>`) : ''}`) : raw(h`
+    ${isText ? raw(h`<textarea id="free" placeholder="${q.placeholder || ''}">${prevText}</textarea>${q.suggestions?.length ? raw(h`<div class="sugg"><span class="cap sec">You asked for this before. Tap to use it again:</span>${q.suggestions.map((x) => raw(h`<button type="button" class="chip" data-sug="${x.text}">${x.text.length > 92 ? x.text.slice(0, 90).trimEnd() + '…' : x.text}</button>`))}</div>`) : ''}`) : raw(h`
       <div class="opts ${isScale ? 'scale' : ''}">
-        ${q.options.map((o, i) => raw(h`${o.group && o.group !== q.options[i - 1]?.group ? raw(h`<div class="optgroup">${o.group}</div>`) : ''}<button class="opt ${sel.includes(o.id) ? 'on' : ''} ${q.pair ? 'pair' : ''}" data-id="${o.id}"><span class="kbd">${isScale ? o.id : optKey(i)}</span><span${isScale && !o.label ? raw(h` aria-label="${o.id} of 5"`) : ''}><span class="l">${q.pair ? o.hint : o.label || (isScale ? '' : o.id)}</span>${!q.pair && o.hint ? raw(h`<span class="h">${o.hint}</span>`) : ''}${q.pair ? raw(h`<span class="h">${o.label}</span>`) : ''}</span><span class="ck">✓</span></button>`))}
+        ${q.options.map((o, i) => raw(h`${o.group && o.group !== q.options[i - 1]?.group ? raw(h`<div class="optgroup">${o.group}</div>`) : ''}<button class="opt ${sel.includes(o.id) ? 'on' : ''} ${q.pair ? 'pair' : ''}" data-id="${o.id}"><span class="kbd">${isScale ? o.id : optKey(i)}</span><span${isScale && !o.label ? raw(h` aria-label="${o.id} of 5"`) : ''}><span class="l">${q.pair ? o.hint || o.label : o.label || (isScale ? '' : o.id)}</span>${!q.pair && o.hint ? raw(h`<span class="h">${o.hint}</span>`) : ''}${q.pair && o.hint ? raw(h`<span class="h">${o.label}</span>`) : ''}</span><span class="ck">✓</span></button>`))}
       </div>
       ${isScale ? raw(h`<div class="scale-ends"><span>${q.left || ''}</span><span>${q.right || ''}</span></div>`) : ''}
       <div class="other"><button class="btn sm ghost" id="otherBtn">✎ Other / my own words</button><textarea id="free" hidden placeholder="Say it your way. Free text is read as the strongest signal.">${prevText}</textarea></div>`)}
@@ -632,13 +637,15 @@ function renderProgress(id) {
     const leftSec = done ? 0 : Math.max(20, total - before - inStep * steps[ci][2]);
     const err = log.find((l) => l.step === 'error');
     const brief = log.find((l) => l.brief)?.brief;
+    const wasOpen = [...top.querySelectorAll('details')].map((d) => d.open); // redrawn every second: keep what she opened open
+    queueMicrotask(() => top.querySelectorAll('details').forEach((d, i) => { if (wasOpen[i]) d.open = true; }));
     top.innerHTML = h`
       ${!done && !err ? raw(h`<div class="flipwrap">${raw(FLIP)}</div>`) : ''}
       <div class="eyebrow">Working on it</div>
-      <h2 style="margin-top:8px">${done ? 'Done. Opening your books.' : err ? 'Something went wrong' : steps[ci][1] + '…'}</h2>
+      <h2 style="margin-top:8px">${done ? 'Done. Opening your books.' : err ? (/Goodreads is not answering/.test(err.msg) ? 'Goodreads is not answering' : 'Something went wrong') : steps[ci][1] + '…'}</h2>
       <div class="bar"><div style="width:${pct}%"></div></div>
       <div class="pct"><span class="tabular">${pct}%</span><span>${done ? '' : err ? '' : leftSec > 90 ? `About ${Math.ceil(leftSec / 60)} minutes left` : 'Under two minutes left'}</span></div>
-      ${err ? raw(h`<p style="color:var(--danger);margin-top:16px">${err.msg}</p><p style="margin-top:12px"><button class="btn primary" id="retry">Try again</button></p>`) : ''}
+      ${err ? raw(h`<p style="color:var(--danger);margin-top:16px">${err.msg}</p><p class="row" style="margin-top:12px"><button class="btn primary" id="retry">Try again</button>${/Goodreads is not answering/.test(err.msg) ? raw('<button class="btn" id="fastInstead">Fast pick instead</button>') : ''}</p>`) : ''}
       <ul class="steps">${steps.map(([k, label], i) => {
         const msgs = log.filter((l) => l.step === k);
         const state = done || i < ci ? 'done' : i === ci ? 'active' : 'todo';
@@ -649,6 +656,7 @@ function renderProgress(id) {
       ${!done && !err ? raw(h`<p class="wait">${WAIT_LINES[lineIdx % WAIT_LINES.length]}</p>`) : ''}`;
     if (!err) document.title = done ? 'Your books are ready · Book Finder' : `${pct}% · Book Finder`;
     const retry = document.getElementById('retry'); if (retry) retry.onclick = act(retry, async () => { await post(`/api/sessions/${id}/recommend`); renderProgress(id); });
+    const fi = document.getElementById('fastInstead'); if (fi) fi.onclick = act(fi, async () => { await post(`/api/sessions/${id}/recommend`, { instant: true }); renderProgress(id); });
   };
   // One card per candidate, drawn only when something about the books changes (so covers do not flicker).
   const drawCards = () => {
@@ -696,18 +704,18 @@ function renderProgress(id) {
   es.onmessage = (e) => {
     if (!alive()) return;
     const ev = JSON.parse(e.data);
-    if (ev.step === 'idle') { es.close(); clearInterval(timer); return get(`/api/sessions/${id}`).then((s) => (s.status === 'recommended' ? (location.hash = `results/${id}`) : interview(id))); }
+    if (ev.step === 'idle') { es.close(); clearInterval(timer); return get(`/api/sessions/${id}`).then((s) => (s.status === 'recommended' ? go(`results/${id}`) : interview(id))); }
     const prevStep = current();
     log.push(ev); if (current() !== prevStep) stepStart = Date.now(); drawTop();
     if (ev.book || ev.drop || ev.verdict) drawCards();
     if (ev.step === 'done') {
       es.close(); clearInterval(timer);
       if (document.hidden && canNotify && Notification.permission === 'granted') { try { new Notification('Book Finder', { body: 'Your books are ready.' }); } catch {} }
-      setTimeout(() => { if (gen === routeGen) location.hash = `results/${id}`; }, 600);
+      setTimeout(() => { if (gen === routeGen) go(`results/${id}`); }, 600);
     }
     if (ev.step === 'error') { es.close(); clearInterval(timer); }
   };
-  es.onerror = () => { es.close(); setTimeout(() => { if (!alive()) return; get(`/api/sessions/${id}`).then((s) => (s.status === 'recommended' ? (location.hash = `results/${id}`) : s.running ? renderProgress(id) : null)); }, 2000); };
+  es.onerror = () => { es.close(); setTimeout(() => { if (!alive()) return; get(`/api/sessions/${id}`).then((s) => (s.status === 'recommended' ? go(`results/${id}`) : s.running ? renderProgress(id) : null)); }, 2000); };
 }
 
 // ---------- results ----------
@@ -726,6 +734,8 @@ function strip(g, d) {
     items = [{ label: 'Romance', value: ro.role === 'none' ? 'none' : [{ hint: 'a hint', subplot: 'a subplot', central: 'at the centre' }[ro.role] || ro.role, (ro.tropes || [])[0], ro.heat && !['none', 'unknown'].includes(ro.heat) ? HEAT[ro.heat] || ro.heat : ''].filter(Boolean).join(', ') }, d.series ? { label: 'Series', value: String(d.series).split(/[;(]|\. |, (?=readers|reviewers|sequels)/)[0].trim().slice(0, 70) } : null].filter(Boolean);
   }
   if (!items) return '';
+  // One Romance label and one Series label: older reports also carry "Romance weight" and the like.
+  items = items.filter((x, i) => !(i > 0 && /^(romance|love story|series)\b/i.test(x.label) && items.slice(0, i).some((y) => y.label.split(' ')[0].toLowerCase() === x.label.split(' ')[0].toLowerCase())));
   return raw(h`<div class="strip">${items.map((x) => raw(h`<span class="chip ${/unclear|unknown/i.test(x.value) ? '' : 'lamp'}">${x.label} <b>${x.value}</b></span>`))}</div>`);
 }
 const NUDGES = ['More romance', 'Less romance', 'Funnier', 'Faster start', 'Better written', 'Shorter', 'Standalone only', 'Less young-adult', 'Stranger', 'Safer choices'];
@@ -733,16 +743,22 @@ const SLIDERS = [['Lighter', 'Darker'], ['Slower burn', 'Faster'], ['Sweeter', '
 let bestFitEver = null;
 const REMOVED = 'Removed from the list';
 // One line of answers under every book in a report: where to keep it, what you think of it, or take it off the list.
+// What happened to a book outranks where it is kept: such a row shows the outcome instead of the Keep answers.
+const RECORDED = ['finished', 'dropped', 'not_for_me', 'already_read', 'started'];
+const placeOf = (r) => (r.feedback_note === REMOVED ? '' : r.shelf === 'Up next' ? 'up_next' : r.shelf === 'Maybe' ? 'maybe' : '');
 function rowActs(r) {
-  const place = r.feedback === 'saved' ? 'up_next' : r.feedback === 'maybe' ? 'maybe' : '';
+  const place = placeOf(r);
   const tog = (attr, val, label, tip, on) => raw(h`<button class="tog" ${attr}="${val}" data-rec="${r.id}" aria-pressed="${on ? 'true' : 'false'}" title="${tip}">${label}</button>`);
-  return raw(h`<span class="actgrp"><span class="actlbl">Keep</span>${tog('data-place', 'up_next', 'Up next', 'Puts the book on your Up next shelf. Press again to take it off.', place === 'up_next')}${tog('data-place', 'maybe', 'Maybe', 'Puts the book on your Maybe shelf: curious, not sure yet. Press again to take it off.', place === 'maybe')}${tog('data-place', 'removed', 'Remove', 'Takes the book off this list. It says nothing about your taste.', false)}</span>
+  const keep = RECORDED.includes(r.feedback)
+    ? raw(h`<span class="actgrp"><span class="actlbl">Outcome</span><span class="outcome">${labelFeedback(r.feedback)}</span><a class="cap" href="#past">change</a></span>`)
+    : raw(h`<span class="actgrp" data-keep><span class="actlbl">Keep</span>${tog('data-place', 'up_next', 'Up next', 'Puts the book on your Up next shelf. Press again to take it off.', place === 'up_next')}${tog('data-place', 'maybe', 'Maybe', 'Puts the book on your Maybe shelf: curious, not sure yet. Press again to take it off.', place === 'maybe')}${tog('data-place', 'removed', 'Remove', 'Takes the book off this list. It says nothing about your taste.', false)}</span>`);
+  return raw(h`${keep}
     <span class="actgrp"><span class="actlbl">Your take</span>${tog('data-react', 'love', 'Love it', 'A great suggestion: I look for more like it. This does not save the book; use Keep for that.', r.reaction === 'love')}${tog('data-react', 'hate', 'Hate it', 'A bad suggestion: I steer away from books like it. This does not remove the book; use Remove for that.', r.reaction === 'hate')}</span>
-    <select class="linksel" data-more="${r.id}" data-title="${r.title}" aria-label="More answers"><option value="">More…</option><option value="read">I have read it</option><option value="more">Re-rank this list: more like this</option><option value="less">Re-rank this list: less like this</option></select>`);
+    <select class="linksel" data-more="${r.id}" data-title="${r.title}" aria-label="More answers"><option value="">More…</option>${RECORDED.includes(r.feedback) ? '' : raw('<option value="read">I have read it</option>')}<option value="more">Re-rank this list: more like this</option><option value="less">Re-rank this list: less like this</option></select>`);
 }
-// What the small text after the answers says: only what the buttons themselves do not already show.
-const rowNote = (r) => (r.feedback && !['saved', 'maybe'].includes(r.feedback) && r.feedback_note !== REMOVED ? labelFeedback(r.feedback) : '');
-const rowGone = (r) => raw(h`<div class="rowgone noprint" hidden><span><b>${r.title}</b> is off this list.</span><button class="linkbtn" data-place="" data-rec="${r.id}">Put it back</button></div>`);
+// The small text after the answers says only what the buttons do not: a shelf other than Up next and Maybe.
+const rowNote = (r) => (RECORDED.includes(r.feedback) || r.feedback_note === REMOVED || !r.shelf || ['Up next', 'Maybe'].includes(r.shelf) ? '' : `On ${r.shelf}`);
+const rowGone = (r) => raw(h`<div class="rowgone noprint" hidden><span><b>${r.title}</b> is off this list.</span><button class="linkbtn" data-back="${r.id}">Put it back</button></div>`);
 function pickRow(r, i, shelves, sessionId, giftFor) {
   if (r.feedback_note === REMOVED) return raw('');
   const f = r.fit;
@@ -840,7 +856,7 @@ async function results(id) {
   ${others.length ? raw(h`<section class="section"><div class="eyebrow">${picks.length ? 'Also considered' : 'The closest calls'}</div>${others.map((r) => runnerRow(r, raw(h`<p style="margin-top:6px;font-size:17px">${r.fit.one_line}</p>`)))}</section>`) : ''}
   ${dropped.length ? raw(h`<section class="section"><details><summary>Set aside after reading the reviews (${dropped.length})</summary><p class="cap sec" style="max-width:62ch">Books I researched and left out, each with the reason. Disagree with one? Add it and it joins your list with an honest verdict.</p>${dropped.map((d) => raw(h`<div class="aside"><div><b>${d.title}</b><div class="cap sec">${d.reason}</div></div>${d.book_id ? raw(h`<div class="row noprint" style="flex-wrap:nowrap"><a class="btn sm ghost" href="#book/${d.book_id}">Look</a><button class="btn sm" data-addbook="${d.book_id}">Add it anyway</button></div>`) : ''}</div>`))}</details></section>`) : ''}
   <section class="section row"><a class="btn" href="#home">New search</a><button class="btn" id="again">Same answers, a fresh search</button><span class="cap sec">Researches a new long list, excluding everything shown here. About ten minutes.</span></section>`;
-  wireShelfButtons();
+  wireShelfButtons(s.recommendations);
   wireChats();
   app.querySelectorAll('[data-happened]').forEach((x) => x.onclick = () => goDebrief(x.dataset.book, x.dataset.happened, 'ask'));
   // Rows open and close; links and buttons inside a row keep their own behaviour.
@@ -1093,7 +1109,7 @@ function shelfMenu(r, shelves) {
     <button class="btn sm ghost" data-shelf="Finished" data-rec="${r.id}" data-ask="Already read it. What did you think?">Already read</button>
     <select class="btn sm" data-custom="${r.id}" style="width:auto"><option value="">More shelves…</option>${shelves.filter((s) => s.kind === 'custom').map((s) => raw(h`<option value="${s.name}">${s.name}</option>`))}<option value="__new">+ New shelf</option></select>`);
 }
-function wireShelfButtons() {
+function wireShelfButtons(recs = []) {
   app.onBfNudge = null;
   app.querySelectorAll('[data-shelf]').forEach((b) => b.onclick = async () => {
     const shelf = b.dataset.shelf; let note = null;
@@ -1101,8 +1117,10 @@ function wireShelfButtons() {
     const fb = shelf === 'Not for me' ? 'not_for_me' : shelf === 'Finished' ? 'already_read' : shelf === 'Reading now' ? 'started' : shelf === 'Maybe' ? 'maybe' : 'saved';
     await post(`/api/recommendations/${b.dataset.rec}/feedback`, { feedback: fb, note, shelf });
     const rowEl = app.querySelector(`[data-row="${b.dataset.rec}"]`);
+    const mine = recs.find((x) => x.id === Number(b.dataset.rec)); if (mine) Object.assign(mine, { feedback: fb, feedback_note: note, shelf });
+    if (rowEl && mine && RECORDED.includes(fb)) { const keepEl = rowEl.querySelector('[data-keep]'); if (keepEl) keepEl.outerHTML = h`<span class="actgrp"><span class="actlbl">Outcome</span><span class="outcome">${labelFeedback(fb)}</span><a class="cap" href="#past">change</a></span>`; }
     rowEl?.querySelectorAll('.tog[data-place]').forEach((x) => x.setAttribute('aria-pressed', String((shelf === 'Up next' && x.dataset.place === 'up_next') || (shelf === 'Maybe' && x.dataset.place === 'maybe'))));
-    const el = app.querySelector(`[data-saved="${b.dataset.rec}"]`); if (el) el.textContent = rowEl && ['Up next', 'Maybe'].includes(shelf) ? '' : `✓ ${shelf}`;
+    const el = app.querySelector(`[data-saved="${b.dataset.rec}"]`); if (el) el.textContent = rowEl ? (mine ? rowNote(mine) : '') : `✓ ${shelf}`;
     toast(`Saved to ${shelf}`);
   });
   const mark = (rec, text) => { const el = app.querySelector(`[data-saved="${rec}"]`); if (el) el.textContent = text; };
@@ -1112,7 +1130,7 @@ function wireShelfButtons() {
   // Neither does the other's job, and pressing a lit answer again takes it back.
   const paint = (row) => {
     const el = app.querySelector(`[data-row="${row.id}"]`); if (!el) return;
-    const place = row.feedback === 'saved' ? 'up_next' : row.feedback === 'maybe' ? 'maybe' : '';
+    const place = placeOf(row);
     el.querySelectorAll('.tog[data-place]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.place === place)));
     el.querySelectorAll('.tog[data-react]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.react === row.reaction)));
     const gone = row.feedback_note === REMOVED;
@@ -1120,9 +1138,16 @@ function wireShelfButtons() {
     const g = el.querySelector('.rowgone'); if (g) g.hidden = !gone;
     mark(row.id, rowNote(row)); renumber();
   };
-  app.querySelectorAll('[data-place]').forEach((b) => b.onclick = async () => {
+  // The page's own copy of each row is kept in step, because "Same answers, a fresh search" reads it later.
+  const sync = (row) => { const r = recs.find((x) => x.id === row.id); if (r) Object.assign(r, { feedback: row.feedback, feedback_note: row.feedback_note, reaction: row.reaction, shelf: row.shelf }); };
+  const before = new Map(); // where a book was kept before it was removed, so "Put it back" restores that
+  app.querySelectorAll('[data-back]').forEach((b) => b.onclick = async () => {
+    const row = await post(`/api/recommendations/${b.dataset.back}/place`, { place: before.get(b.dataset.back) || null }); sync(row); paint(row); toast('Back on the list');
+  });
+  app.querySelectorAll('.tog[data-place]').forEach((b) => b.onclick = async () => {
     const want = b.getAttribute('aria-pressed') === 'true' ? null : b.dataset.place || null;
-    const row = await post(`/api/recommendations/${b.dataset.rec}/place`, { place: want }); paint(row);
+    if (want === 'removed') before.set(b.dataset.rec, b.closest('.rowpick')?.querySelector('.tog[data-place][aria-pressed="true"]')?.dataset.place || null);
+    const row = await post(`/api/recommendations/${b.dataset.rec}/place`, { place: want }); sync(row); paint(row);
     const kept = app.querySelector(`[data-row="${row.id}"] .tog[data-react="hate"][aria-pressed="true"]`);
     toast(want === 'up_next' ? 'On your Up next shelf' : want === 'maybe' ? 'On your Maybe shelf' : want === 'removed' ? 'Off this list' : b.dataset.place === 'up_next' ? 'Taken off Up next' : b.dataset.place === 'maybe' ? 'Taken off Maybe' : 'Back on the list');
     if (want && want !== 'removed' && kept) toast('Saved, though you marked it a bad suggestion. Both are kept as you set them.');
@@ -1130,8 +1155,8 @@ function wireShelfButtons() {
   app.querySelectorAll('.tog[data-react]').forEach((b) => b.onclick = async () => {
     const on = b.getAttribute('aria-pressed') === 'true'; const kind = b.dataset.react; let note = null;
     if (!on && kind === 'hate') { note = await askLine('What is wrong with this suggestion? One line helps me steer away. You can leave it empty.'); if (note === null) return; }
-    const row = await post(`/api/recommendations/${b.dataset.rec}/reaction`, { reaction: on ? null : kind, note }); paint(row);
-    const placed = ['saved', 'maybe'].includes(row.feedback);
+    const row = await post(`/api/recommendations/${b.dataset.rec}/reaction`, { reaction: on ? null : kind, note }); sync(row); paint(row);
+    const placed = !!placeOf(row) || RECORDED.includes(row.feedback);
     toast(on ? 'Taken back' : kind === 'love' ? (placed ? 'Noted: a great suggestion. More like this in future.' : 'Noted: a great suggestion. To keep the book, press Up next or Maybe.') : (row.feedback_note === REMOVED ? 'Noted: a bad suggestion. I will steer away from books like this.' : 'Noted: a bad suggestion. It stays on the list until you press Remove.'));
   });
   app.querySelectorAll('[data-more]').forEach((sel) => sel.onchange = async () => {
@@ -1139,8 +1164,10 @@ function wireShelfButtons() {
     if (v === 'more' || v === 'less') return app.onBfNudge?.(`${v} like ${sel.dataset.title}`);
     const note = await askLine('Already read it. What did you think?'); if (note === null) return;
     await post(`/api/recommendations/${sel.dataset.more}/feedback`, { feedback: 'already_read', note, shelf: 'Finished' });
-    const el = app.querySelector(`[data-row="${sel.dataset.more}"]`); el?.querySelectorAll('.tog[data-place]').forEach((x) => x.setAttribute('aria-pressed', 'false'));
-    mark(sel.dataset.more, 'Already read'); toast('Saved to Finished');
+    sync({ id: Number(sel.dataset.more), feedback: 'already_read', feedback_note: note, shelf: 'Finished', reaction: recs.find((x) => x.id === Number(sel.dataset.more))?.reaction });
+    const keepEl = app.querySelector(`[data-row="${sel.dataset.more}"] [data-keep]`);
+    if (keepEl) keepEl.outerHTML = h`<span class="actgrp"><span class="actlbl">Outcome</span><span class="outcome">Already read</span><a class="cap" href="#past">change</a></span>`;
+    sel.querySelector('option[value="read"]')?.remove(); toast('Saved to Finished');
   });
   app.querySelectorAll('[data-custom]').forEach((sel) => sel.onchange = async () => {
     let name = sel.value; if (!name) return;
@@ -1222,7 +1249,7 @@ async function book(id) {
 const CHOOSABLE = ['Up next', 'Someday', 'Maybe'];
 async function shelves(activeId) {
   const list = await get('/api/shelves');
-  const active = list.find((s) => String(s.id) === String(activeId)) || list[0];
+  const active = list.find((s) => String(s.id) === String(activeId)) || list.find((s) => s.count > 0) || list[0];
   const items = active ? await get(`/api/shelves/${active.id}/items`) : [];
   const verdictShelf = ['Finished', 'Did not finish'].includes(active?.name);
   app.innerHTML = h`<section class="section" style="padding-top:8px">
@@ -1249,7 +1276,7 @@ async function shelves(activeId) {
         </div></div>`)) : raw(h`<div class="empty">${raw(STACK)}<div class="big">Nothing here yet</div><div>Save a recommendation from a results page, or add a book by search, and it lands on this shelf.</div><a class="btn primary" href="#home">Find a book</a></div>`)}</div>
   </section>`;
   document.getElementById('newShelf').onclick = async () => { const name = await askLine('Shelf name'); if (!name) return; const r = await post('/api/shelves', { name }); location.hash = `shelves/${r.id}`; };
-  const ds = document.getElementById('delShelf'); if (ds) ds.onclick = async () => { if (await confirmBox(`Delete shelf "${active.name}"?`)) { await del(`/api/shelves/${active.id}`); location.hash = 'shelves'; } };
+  const ds = document.getElementById('delShelf'); if (ds) ds.onclick = async () => { if (await confirmBox(`Delete shelf "${active.name}"?`)) { await del(`/api/shelves/${active.id}`); go('shelves'); } };
   const cl = document.getElementById('chooseLink');
   if (cl) {
     const box = document.getElementById('choose'), out = document.getElementById('chooseOut'), goB = document.getElementById('chooseGo'), nowI = document.getElementById('chooseNow');
@@ -1294,7 +1321,9 @@ async function shelves(activeId) {
       const it = items.find((x) => String(x.id) === id);
       let note = it.note; if (['Not for me', 'Did not finish'].includes(target.name)) { const w = await askLine('Why? One line.'); if (w) note = w; }
       await post(`/api/shelves/${target.id}/items`, { bookId: it.book_id, note });
-      if (target.kind !== 'system' || active.kind !== 'system') await del(`/api/shelf-items/${id}`);
+      // Moving between two reading-state shelves is done by the server (a book has one state); any other move removes it here.
+      const STATE = ['Reading now', 'Up next', 'Someday', 'Maybe', 'Finished', 'Did not finish', 'Not for me'];
+      if (!(STATE.includes(target.name) && STATE.includes(active.name))) await del(`/api/shelf-items/${id}`);
       shelves(active.id);
     };
   });
@@ -1320,22 +1349,21 @@ async function profile() {
     <p class="row" style="margin-top:16px"><a class="btn sm" href="#report">Reading report</a><a class="btn sm" href="#history">History and import</a></p>
   </section>
   <section class="section"><h2>Mood over time</h2><p class="cap sec" style="margin-top:4px">Every check-in, oldest to newest. Hover a point for the whole session.</p>${moodChart(moods)}</section>
-  <section class="section"><h2>What you say versus what you do</h2><p class="cap sec" style="margin-top:4px">What you asked for in each mood, against what you actually finished. ${ins.sayVsDo.told} of ${ins.sayVsDo.n} picks have an outcome${ins.sayVsDo.n > ins.sayVsDo.told ? raw(h`; <a href="#followups">tell me about the rest</a>`) : ''}.</p>
+  <section class="section"><h2>What you say versus what you do</h2><p class="cap sec" style="margin-top:4px">What you asked for in each mood, against what you actually finished. ${ins.sayVsDo.told} of ${ins.sayVsDo.n} picks have an outcome${ins.sayVsDo.n > ins.sayVsDo.told ? raw(h`; <a href="#followups/all">tell me about the rest</a>`) : ''}.</p>
     ${ins.sayVsDo.sentences.length ? raw(h`<div class="msum">${ins.sayVsDo.sentences.map((x) => raw(h`<p>${x}</p>`))}</div>`) : raw('<p class="sec" style="margin-top:12px">Patterns appear once a few picks have outcomes. The home page asks after each session.</p>')}
     ${Object.values(ins.sayVsDo.need).some((g) => g.finished || g.dropped) ? raw(h`<div class="tablewrap" style="margin-top:16px"><table><tr><th>You asked the book to</th><th class="num">Picks</th><th class="num">Finished</th><th class="num">Dropped</th><th>Finished books were</th><th>Dropped books were</th></tr>${Object.entries(ins.sayVsDo.need).map(([k, g]) => raw(h`<tr><td>${k}</td><td class="num">${g.picks}</td><td class="num">${g.finished}</td><td class="num">${g.dropped}</td><td class="sec">${g.finishedTags.join(', ')}</td><td class="sec">${g.droppedTags.join(', ')}</td></tr>`))}</table></div>`) : ''}
   </section>
   <section class="section"><h2>After reading</h2><p class="cap sec" style="margin-top:4px">What you said right after each book: the freshest evidence the tool has, read before anything else. ${ins.afterReading?.n ? `${ins.afterReading.n} ${ins.afterReading.n === 1 ? 'debrief' : 'debriefs'} so far.` : ''}</p>
     ${ins.afterReading?.sentences?.length ? raw(h`<div class="msum">${ins.afterReading.sentences.map((x) => raw(h`<p>${x}</p>`))}</div>`) : raw('<p class="sec" style="margin-top:12px">Patterns appear after two or three debriefs. Finish or drop a book, then say what happened: from the home page, a book page, the shelves or Past picks.</p>')}
-    ${after.length ? raw(h`<div style="margin-top:12px">${after.slice(0, 12).map((f) => raw(h`<div class="fact"><div>${f.value?.line || ''}</div><div class="m">${when(f.observed_at)} · <a href="#" data-delfact="${f.id}">delete</a></div></div>`))}</div>`) : ''}
-    <p style="margin-top:12px"><a class="btn sm" href="#past">Past picks</a></p></section>
+    ${after.length ? raw(h`<div style="margin-top:12px">${after.slice(0, 12).map((f) => raw(h`<div class="fact">${afterLine(f.value?.line)}<div class="m">${when(f.observed_at)} · <a href="#" data-delfact="${f.id}">delete</a></div></div>`))}</div>`) : ''}
+    <p class="cap" style="margin-top:12px"><a href="#past">All past picks, and what became of each book →</a></p></section>
   <section class="section"><h2>Appeal fingerprint</h2><p class="cap sec" style="margin-top:4px">From every book you have a verdict on and that has a review digest (${ins.fingerprint.books} books). Finish rate and your average rating per appeal factor. Enrich your history on the History page to feed it.</p>
     ${ins.fingerprint.rows.length ? raw(h`${ins.fingerprint.loved.length ? raw(h`<p style="margin-top:12px"><b>You rate highest:</b> ${ins.fingerprint.loved.slice(0, 5).map((r) => `${r.tag} (${r.avg_rating}/5, ${r.n})`).join(' · ')}</p>`) : ''}${ins.fingerprint.dropped.length ? raw(h`<p style="margin-top:6px"><b>You drop most:</b> ${ins.fingerprint.dropped.slice(0, 5).map((r) => `${r.tag} (${r.dnf} of ${r.n})`).join(' · ')}</p>`) : ''}
     <details><summary>All ${ins.fingerprint.rows.length} appeal factors</summary><div class="tablewrap" style="margin-top:12px"><table><tr><th>Appeal</th><th class="num">Books</th><th class="num">Finished</th><th class="num">Dropped</th><th class="num">Your avg</th><th>For example</th></tr>${ins.fingerprint.rows.slice(0, 25).map((r) => raw(h`<tr><td>${r.tag}</td><td class="num">${r.n}</td><td class="num">${r.finished}</td><td class="num">${r.dnf}</td><td class="num">${r.avg_rating ?? ''}</td><td class="sec">${r.titles.slice(0, 2).join(', ')}</td></tr>`))}</table></div></details>`) : raw('<p class="sec" style="margin-top:12px">Needs at least two books per factor. The <a href="#trainer">taste trainer</a> is the quickest way to feed it. Import and enrich your history, or rate what you finish.</p>')}
   </section>
-  <section class="section"><h2>Lines you underlined</h2>${notes.length ? raw(h`<div class="notes" style="margin-top:8px">${notes.slice(0, 12).map((n) => raw(h`<div class="quote">“${n.text}”<span class="cap sec"> ${n.title ? `${n.title} · ` : ''}${n.page ? `p. ${n.page} · ` : ''}${when(n.created_at)}</span></div>`))}</div>`) : raw('<p class="sec" style="margin-top:8px">Nothing yet. Any book page takes a sentence you underlined. It feeds the Reader DNA.</p>')}
-    <p style="margin-top:16px"><a class="btn sm" href="#report">Reading report</a></p></section>
+  <section class="section"><h2>Lines you underlined</h2>${notes.length ? raw(h`<div class="notes" style="margin-top:8px">${notes.slice(0, 12).map((n) => raw(h`<div class="quote">“${n.text}”<span class="cap sec"> ${n.title ? `${n.title} · ` : ''}${n.page ? `p. ${n.page} · ` : ''}${when(n.created_at)}</span></div>`))}</div>`) : raw('<p class="sec" style="margin-top:8px">Nothing yet. Any book page takes a sentence you underlined. It feeds the Reader DNA.</p>')}</section>
   <section class="section"><details><summary style="font-size:19px">Your taste answers (${answered.length})</summary><p class="cap sec" style="margin-top:4px">Stable taste. Each keeps its date; earlier answers stay in history.</p><div style="margin-top:12px">${answered.map((f) => raw(h`<div class="fact"><div class="k">${qmap[f.key]?.text || f.key}</div><div>${(f.value?.labels || []).join(', ')}${f.value?.text ? raw(h`${f.value.labels?.length ? ' · ' : ''}<i>${f.value.text}</i>`) : ''}</div><div class="m">${when(f.observed_at)} · <a href="#" data-hist="${f.key}">history</a></div></div>`))}</div></details></section>
-  <section class="section"><h2>What it looks like so far</h2><p class="cap sec" style="margin-top:4px">Patterns the tool inferred from what you read, finished, dropped and said. Each one can be wrong: confirm it or throw it out.</p><div style="margin-top:12px">${inferred.length ? inferred.map((f) => raw(h`<div class="fact"><div class="k">${f.key.replace(/^inferred_/, '').replace(/_/g, ' ')} <span class="chip">${Math.round(f.confidence * 100)}% sure</span></div><div>${typeof f.value === 'string' ? f.value : JSON.stringify(f.value)}</div><div class="m">${f.source === 'manual' ? 'Confirmed by you' : raw(h`${f.note || ''} · <a href="#" data-okfact="${f.id}">that is right</a>`)} · <a href="#" data-delfact="${f.id}">that is wrong, delete it</a></div></div>`)) : raw('<p class="sec">Nothing yet.</p>')}
+  <section class="section"><h2>What it looks like so far</h2><p class="cap sec" style="margin-top:4px">Patterns the tool inferred from what you read, finished, dropped and said. Each one can be wrong: confirm it or throw it out.</p><div style="margin-top:12px">${inferred.length ? inferred.map((f) => raw(h`<div class="fact"><div class="k">${f.key.replace(/^inferred_/, '').replace(/^flag_/, '').replace(/_/g, ' ')} <span class="chip">${Math.round(f.confidence * 100)}% sure</span></div><div>${typeof f.value === 'string' ? f.value.replace(/^(FLAG|REVISED):\s*/, '') : JSON.stringify(f.value)}</div><div class="m">${f.source === 'manual' ? 'Confirmed by you' : raw(h`${f.note || ''} · <a href="#" data-okfact="${f.id}">that is right</a>`)} · <a href="#" data-delfact="${f.id}">that is wrong, delete it</a></div></div>`)) : raw('<p class="sec">Nothing yet.</p>')}
     ${rejected.length ? raw(h`<h3 style="margin-top:24px">Rejections and drops you explained</h3>${rejected.map((f) => raw(h`<div class="fact"><div>${f.value?.note || f.value?.line || (typeof f.value === 'string' ? f.value : '')}</div><div class="m">${f.note || ''} · ${when(f.observed_at)} · <a href="#" data-delfact="${f.id}">delete</a></div></div>`))}`) : ''}</div></section>
   `;
   wireMoodChart();
@@ -1349,11 +1377,26 @@ async function profile() {
   });
 }
 
+// Since picks carry free labels ("sharpest lead", "funniest, devour"), most kinds occur once. Those are counted together.
+function slotRows(bySlot) {
+  const all = Object.entries(bySlot), big = all.filter(([, g]) => g.picks >= 2), small = all.filter(([, g]) => g.picks < 2);
+  if (small.length < 2) return all;
+  const sum = small.reduce((a, [, g]) => ({ picks: a.picks + g.picks, finished: a.finished + g.finished, dropped: a.dropped + g.dropped }), { picks: 0, finished: 0, dropped: 0 });
+  return [...big.sort((a, b) => b[1].picks - a[1].picks), [`one-off labels (${small.length})`, sum]];
+}
+
 // ---------- mood chart: three single-series strip charts over sessions, plus the words ----------
 const SCALES = [['demand', 'Effort', 'easy', 'demanding'], ['tone', 'Light / dark', 'light', 'dark'], ['safe', 'Safe / disturbing', 'safe', 'disturbing']];
 const SHORT_MOOD = { good_energetic: 'Good, energetic', good_calm: 'Good, calm', flat: 'Flat', stressed: 'Stressed', low: 'Low', raw: 'Raw', restless: 'Restless' };
 const HARD_MOODS = ['stressed', 'anxious', 'irritable', 'low', 'lonely', 'raw', 'flat', 'numb', 'tired', 'restless'];
 const moodWords = (m) => String(SHORT_MOOD[m.mood_id] || m.mood || '').split(' + ').filter(Boolean);
+// A debrief is stored as one line for the model ("Title - Author: finished, 3/5 (date) | worked: … | bothered: …").
+// For the reader it is a title and a short list.
+function afterLine(line) {
+  const [head, ...rest] = String(line || '').split(' | ');
+  const cut = head.lastIndexOf(': ');
+  return raw(h`<div><b>${cut > 0 ? head.slice(0, cut) : head}</b>${cut > 0 ? ` · ${head.slice(cut + 2)}` : ''}</div>${rest.length ? raw(h`<dl class="afterdl">${rest.map((x) => { const i = x.indexOf(': '); const asked = /^asked "/.test(x); return raw(h`<dt>${asked ? 'one more' : i > 0 ? x.slice(0, i).replace(/^tool's warning was$/, 'my warning') : ''}</dt><dd>${asked ? x.replace(/^asked /, '') : i > 0 ? x.slice(i + 2) : x}</dd>`); })}</dl>`) : ''}`);
+}
 function moodChart(all) {
   if (!all.length) return raw(`<div class="empty" style="margin-top:12px">${LAMP}<div class="big">No check-ins yet</div><div>Your mood, need, effort and light-dark answers land here after each interview.</div></div>`);
   const n = Math.min(all.length, window.innerWidth < 640 ? 8 : 16);
@@ -1375,10 +1418,9 @@ function moodChart(all) {
   return raw(h`<div class="mchart" style="margin-top:16px">
     ${SCALES.map(scale)}
     ${words('Date', (m) => new Date(m.at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }))}
-    ${words('Mood', (m) => SHORT_MOOD[m.mood_id] || m.mood)}
-    ${words('Need', (m) => m.need)}
   </div>
   <div class="mtip" id="mtip" hidden></div>
+  <div class="tablewrap mlist"><table><tr><th>Check-in</th><th>How you were</th><th>What you asked the book to do</th></tr>${rows.slice(-6).reverse().map((m) => raw(h`<tr><td class="sec" style="white-space:nowrap">${new Date(m.at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</td><td>${moodWords(m).join(', ') || '·'}</td><td>${String(m.need || '').split(' + ').filter(Boolean).join(', ') || '·'}</td></tr>`))}</table></div>
   ${thin.length ? raw(h`<p class="cap sec" style="margin-top:8px">Not drawn yet, too few answers: ${thin.join(', ')}.</p>`) : ''}
   ${all.length > n ? raw(h`<p class="cap sec" style="margin-top:8px">Showing the last ${n} of ${all.length} check-ins.</p>`) : ''}
   ${summary.length ? raw(h`<div class="msum">${summary.map((s) => raw(h`<p>${s}</p>`))}</div>`) : raw('<p class="cap sec" style="margin-top:12px">Patterns appear after three or more check-ins.</p>')}`);
@@ -1404,7 +1446,10 @@ function moodSummary(all) {
 function wireMoodChart() {
   const tip = document.getElementById('mtip'); if (!tip) return;
   app.querySelectorAll('[data-tip]').forEach((el) => {
-    el.onmouseenter = el.onfocus = () => { tip.textContent = el.dataset.tip; tip.hidden = false; const r = el.getBoundingClientRect(); const z = parseFloat(getComputedStyle(document.body).zoom) || 1; tip.style.left = Math.min(window.innerWidth - tip.offsetWidth - 16, Math.max(16, r.left + r.width / 2 - tip.offsetWidth / 2)) / z + 'px'; tip.style.top = (r.top + window.scrollY - tip.offsetHeight - 10) / z + 'px'; };
+    el.onmouseenter = el.onfocus = () => { tip.textContent = el.dataset.tip; tip.hidden = false;
+      // Offsets relative to the tooltip's own container: the same units whatever the page zoom (text size) is.
+      const box = tip.offsetParent || document.body; let x = 0, y = 0; for (let n = el; n && n !== box; n = n.offsetParent) { x += n.offsetLeft; y += n.offsetTop; }
+      tip.style.left = Math.min(box.clientWidth - tip.offsetWidth - 8, Math.max(8, x + el.offsetWidth / 2 - tip.offsetWidth / 2)) + 'px'; tip.style.top = (y - tip.offsetHeight - 12) + 'px'; };
     el.onmouseleave = el.onblur = () => (tip.hidden = true);
   });
 }
@@ -1493,10 +1538,10 @@ async function report(period = 'quarter') {
   app.innerHTML = h`<section class="section" style="padding-top:8px"><div class="row between"><h1>Reading report</h1><div class="row">${[['month', 'Month'], ['quarter', 'Quarter'], ['year', 'Year']].map(([k, l]) => raw(h`<a class="btn sm ${k === period ? 'on' : ''}" href="#report/${k}">${l}</a>`))}</div></div>
     <p class="cap sec" style="margin-top:8px">Since ${st.from}. Honest accounting for the tool as much as for you.</p>
     <div class="stats">${row('picks', rc.picks)}${row('finished', rc.finished)}${row('dropped', rc.dropped)}${row('kept for later', rc.later)}${row('rejected', rc.rejected)}${row('no outcome yet', rc.untold)}${row('check-ins', st.moods.checkins)}${row('verdicts asked', st.verdicts)}${row('lines underlined', st.notes)}</div>
-    ${rc.untold ? raw(h`<p class="cap" style="margin-top:8px"><a href="#followups">Tell me what happened with the ${rc.untold} without an outcome</a></p>`) : ''}
+    ${rc.untold ? raw(h`<p class="cap" style="margin-top:8px"><a href="#followups/all">Tell me what happened with the ${rc.untold} without an outcome</a></p>`) : ''}
   </section>
   <section class="section"><h2>What worked</h2>
-    ${Object.keys(st.by_slot).length ? raw(h`<div class="tablewrap" style="margin-top:12px"><table><tr><th>Kind of pick</th><th class="num">Picks</th><th class="num">Finished</th><th class="num">Dropped</th></tr>${Object.entries(st.by_slot).map(([k, g]) => raw(h`<tr><td>${k}</td><td class="num">${g.picks}</td><td class="num">${g.finished}</td><td class="num">${g.dropped}</td></tr>`))}</table></div>`) : raw('<p class="sec" style="margin-top:8px">No picks in this period.</p>')}
+    ${Object.keys(st.by_slot).length ? raw(h`<div class="tablewrap" style="margin-top:12px"><table><tr><th>Kind of pick</th><th class="num">Picks</th><th class="num">Finished</th><th class="num">Dropped</th></tr>${slotRows(st.by_slot).map(([k, g]) => raw(h`<tr><td>${k}</td><td class="num">${g.picks}</td><td class="num">${g.finished}</td><td class="num">${g.dropped}</td></tr>`))}</table></div>`) : raw('<p class="sec" style="margin-top:8px">No picks in this period.</p>')}
     ${st.calibration.confidence_when_finished != null || st.calibration.confidence_when_dropped != null ? raw(h`<p class="cap sec" style="margin-top:10px">The tool's own confidence: ${st.calibration.confidence_when_finished ?? '?'} on books you finished, ${st.calibration.confidence_when_dropped ?? '?'} on books you dropped. If those are close, its confidence means little yet.</p>`) : ''}
     ${st.finished_titles.length ? raw(h`<p style="margin-top:12px"><b>Finished:</b> ${st.finished_titles.join(' · ')}</p>`) : ''}
     ${st.drop_reasons.length ? raw(h`<p style="margin-top:8px"><b>Dropped, and why:</b></p><ul class="plain">${st.drop_reasons.map((x) => raw(h`<li>${x}</li>`))}</ul>`) : ''}

@@ -187,6 +187,7 @@ addColumn('recommendations', 'reaction_note', 'TEXT');
 // One afternoon "Love it" also saved the book and wrote the reaction into the note; split the two.
 db.exec("UPDATE recommendations SET reaction = 'love', feedback_note = NULL WHERE feedback_note = 'Loved this suggestion'");
 db.exec("UPDATE recommendations SET reaction = 'hate', reaction_note = NULLIF(substr(feedback_note, 23), ''), feedback_note = NULL WHERE feedback_note LIKE 'Hated the suggestion%'");
+db.exec("UPDATE reading_history SET my_review = replace(my_review, '(Her answer in the taste trainer.)', '(Answered in the taste trainer.)') WHERE my_review LIKE '%(Her answer in the taste trainer.)%'");
 // Authorless history rows: NULL never collides in UNIQUE(title, author, source), so re-imports duplicated them.
 db.exec("UPDATE OR IGNORE reading_history SET author = '' WHERE author IS NULL");
 // A run that was cut off (app closed mid-research) must not leave its session stuck as 'researching'.
@@ -337,7 +338,7 @@ export function addRecommendation({ sessionId, bookId, rank, slot, fit }) {
   return Number(r.lastInsertRowid);
 }
 export function getRecommendations(sessionId) {
-  return db.prepare('SELECT r.*, b.title, b.author, b.year, b.pages, b.genres, b.cover, b.url, b.rating, b.ratings_count, b.description, b.review_digest, b.language FROM recommendations r JOIN books b ON b.id = r.book_id WHERE r.session_id = ? AND r.superseded_at IS NULL ORDER BY r.rank')
+  return db.prepare(`SELECT r.*, (SELECT s2.name FROM shelf_items i2 JOIN shelves s2 ON s2.id = i2.shelf_id WHERE i2.book_id = r.book_id AND s2.name IN ('Reading now', 'Up next', 'Someday', 'Maybe', 'Finished', 'Did not finish', 'Not for me') LIMIT 1) AS shelf, b.title, b.author, b.year, b.pages, b.genres, b.cover, b.url, b.rating, b.ratings_count, b.description, b.review_digest, b.language FROM recommendations r JOIN books b ON b.id = r.book_id WHERE r.session_id = ? AND r.superseded_at IS NULL ORDER BY r.rank`)
     .all(sessionId).map((r) => ({ ...r, fit: P(r.fit), genres: P(r.genres) || [], review_digest: P(r.review_digest) }));
 }
 export function setRecommendationFeedback(id, feedback, note = null, outcome = null) {
@@ -349,26 +350,38 @@ export function setRecommendationReaction(id, reaction, note = null) {
 }
 // Where a suggested book is kept: on Up next, on Maybe, off this list, or (null) nowhere yet. Each press is undoable.
 export const REMOVED_NOTE = 'Removed from the list';
+// One report row as the page needs it: the answer on the pick, her take, and the reading-state shelf the book is really on.
+export function recommendationRow(id) {
+  return db.prepare(`SELECT r.id, r.book_id, r.feedback, r.feedback_note, r.reaction, r.reaction_note,
+    (SELECT s2.name FROM shelf_items i2 JOIN shelves s2 ON s2.id = i2.shelf_id WHERE i2.book_id = r.book_id AND s2.name IN ('Reading now', 'Up next', 'Someday', 'Maybe', 'Finished', 'Did not finish', 'Not for me') LIMIT 1) AS shelf
+    FROM recommendations r WHERE r.id = ?`).get(id);
+}
+// What actually happened to a book. The quick Keep answers never overwrite one of these.
+export const RECORDED_OUTCOMES = ['finished', 'dropped', 'not_for_me', 'already_read', 'started'];
 export function placeRecommendation(id, place) {
   const rec = db.prepare('SELECT book_id, feedback, feedback_note FROM recommendations WHERE id = ?').get(id);
   if (!rec) return null;
+  if (RECORDED_OUTCOMES.includes(rec.feedback)) throw Object.assign(new Error('This book already has an outcome. Change it from Past picks.'), { status: 409 });
   const off = (names) => db.prepare(`DELETE FROM shelf_items WHERE book_id = ? AND shelf_id IN (SELECT id FROM shelves WHERE name IN (${names.map(() => '?').join(',')}))`).run(rec.book_id, ...names);
   const shelf = (name) => { const s = db.prepare('SELECT id FROM shelves WHERE name = ?').get(name); if (s) addToShelf({ shelfId: s.id, bookId: rec.book_id, exclusiveStatus: true }); };
   if (place === 'up_next') { shelf('Up next'); setRecommendationFeedback(id, 'saved'); }
   else if (place === 'maybe') { shelf('Maybe'); setRecommendationFeedback(id, 'maybe'); }
   else if (place === 'removed') { off(['Up next', 'Maybe']); setRecommendationFeedback(id, 'not_now', REMOVED_NOTE); }
   else { off(['Up next', 'Maybe']); setRecommendationFeedback(id, null); }
-  return db.prepare('SELECT id, book_id, feedback, feedback_note, reaction, reaction_note FROM recommendations WHERE id = ?').get(id);
+  return recommendationRow(id);
 }
 // Picks from earlier sessions that never got an outcome: the loop-closer screen asks about them. A pick she never
-// touched is asked about for three weeks and then lapses quietly; one she saved or started is asked about after a week.
-export function pendingFollowups(excludeSessionId = null, limit = 6) {
+// touched is asked about from its third day (nothing has "happened" to a book suggested this morning) for three weeks
+// and then lapses quietly; one she saved or started is asked about after a week.
+export function pendingFollowups(excludeSessionId = null, limit = 6, { all = false } = {}) {
+  // all: she asked for every pick without an outcome (from Past picks or the report), whatever its age.
+  const young = all ? new Date(Date.now() + 864e5).toISOString() : new Date(Date.now() - 2 * 864e5).toISOString(), old = all ? '1970' : new Date(Date.now() - 21 * 864e5).toISOString();
   return db.prepare(`SELECT r.id, r.session_id, r.book_id, r.slot, r.fit, r.created_at, b.title, b.author, b.cover, b.pages, b.year, b.url, b.description, b.review_digest, s.mode
                      FROM recommendations r JOIN books b ON b.id = r.book_id JOIN sessions s ON s.id = r.session_id
                      WHERE r.slot NOT IN ('runner_up', 'exception') AND s.mode != 'gift' AND r.session_id != ? AND r.created_at < ? AND r.superseded_at IS NULL
                        AND COALESCE(r.reaction, '') != 'hate'
-                       AND ((r.feedback IS NULL AND r.created_at > ?) OR (r.feedback IN ('saved', 'started') AND r.created_at < ?))
-                     ORDER BY r.id DESC LIMIT ?`).all(excludeSessionId ?? -1, new Date(Date.now() - 36e5).toISOString(), new Date(Date.now() - 21 * 864e5).toISOString(), new Date(Date.now() - 7 * 864e5).toISOString(), limit)
+                       AND ((r.feedback IS NULL AND r.created_at > ? AND r.created_at < ?) OR (r.feedback IN ('saved', 'started') AND r.created_at < ?))
+                     ORDER BY r.id DESC LIMIT ?`).all(excludeSessionId ?? -1, all ? young : new Date(Date.now() - 36e5).toISOString(), old, young, new Date(Date.now() - 7 * 864e5).toISOString(), limit)
     .map((r) => ({ ...r, fit: P(r.fit), description: (r.description || '').slice(0, 600), review_digest: compactDigest(P(r.review_digest)) }));
 }
 function compactDigest(d) {
@@ -393,7 +406,10 @@ export function outcomeRows() {
                             b.title, b.author, b.pages, b.year, b.review_digest
                      FROM recommendations r JOIN books b ON b.id = r.book_id JOIN sessions s ON s.id = r.session_id
                      WHERE r.slot NOT IN ('runner_up', 'exception') ORDER BY r.id`).all()
-    .map((r) => ({ ...r, fit: P(r.fit), outcome: P(r.outcome), review_digest: P(r.review_digest) }));
+    .map((r) => ({ ...r, fit: P(r.fit), outcome: P(r.outcome), review_digest: P(r.review_digest) }))
+    // A replaced slate stays as evidence, but the same book suggested again (a re-ranked list copies its rows) counts once:
+    // the newest row for each book wins.
+    .filter((r, _, all) => !all.some((x) => x.book_id === r.book_id && x.id > r.id));
 }
 // The owner's own past recommendations (gift slates are about someone else), including replaced slates.
 export function pastRecommendations(limit = 60) {
@@ -437,6 +453,8 @@ export function addToShelf({ shelfId, bookId, note = null, exclusiveStatus = fal
     .run(shelfId, bookId, note, now());
 }
 export function updateShelfItem(id, { note, my_rating, my_verdict, page }) {
+  // A saved note must not wipe what the after-reading debrief stored in the same field (worked, bothered, debrief_id).
+  if (my_verdict) { const cur = P(db.prepare('SELECT my_verdict FROM shelf_items WHERE id = ?').get(id)?.my_verdict); if (cur && typeof cur === 'object') my_verdict = { ...cur, ...my_verdict }; }
   db.prepare('UPDATE shelf_items SET note = COALESCE(?, note), my_rating = COALESCE(?, my_rating), my_verdict = COALESCE(?, my_verdict), page = COALESCE(?, page), updated_at = ? WHERE id = ?')
     .run(note ?? null, my_rating ?? null, my_verdict ? J(my_verdict) : null, page ?? null, now(), id);
 }

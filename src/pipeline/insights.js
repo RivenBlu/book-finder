@@ -11,7 +11,7 @@ import { debriefQuestions, DEBRIEF } from '../questions.js';
 export { sayVsDo, fingerprint, fingerprintCompact, debriefPatterns };
 
 // ---------- loop closer ----------
-export function followups(excludeSessionId = null) { return DB.pendingFollowups(excludeSessionId, 6); }
+export function followups(excludeSessionId = null, all = false) { return DB.pendingFollowups(excludeSessionId, all ? 12 : 6, { all }); }
 
 /** outcome: finished | dropped | later | maybe | forgot | not_interested. page/reason/rating optional. */
 export function recordOutcome(recId, { outcome, page = null, reason = null, rating = null }) {
@@ -227,7 +227,7 @@ export function trainerAnswer({ title, author = '', verdict, as = null }) {
   const rating = { loved: 5, fine: 3, hated: 1 }[verdict];
   if (!rating) throw new Error('unknown answer');
   const how = TRAINER_AS[as] ? ` as ${TRAINER_AS[as]}` : '';
-  const review = verdict === 'loved' ? `Loved it${how}. (Her answer in the taste trainer.)` : verdict === 'fine' ? `It was fine${how}, nothing more. (Her answer in the taste trainer.)` : 'Disliked it. (Her answer in the taste trainer.)';
+  const review = verdict === 'loved' ? `Loved it${how}. (Answered in the taste trainer.)` : verdict === 'fine' ? `It was fine${how}, nothing more. (Answered in the taste trainer.)` : 'Disliked it. (Answered in the taste trainer.)';
   DB.addHistory({ title, author, myRating: rating, myReview: review, status: 'read', tags: as ? [as] : [], source: 'trainer' });
   return { ok: true };
 }
