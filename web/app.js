@@ -220,7 +220,7 @@ async function interview(id) {
 }
 
 // ---------- loop closer ----------
-const OUTCOMES = [['finished', 'Finished it', 'Rate it and say a word'], ['dropped', 'Dropped it', 'Where, and why'], ['later', 'Have not started, keep it', 'Stays on Up next'], ['not_interested', 'Not interested after all', 'One line teaches the tool']];
+const OUTCOMES = [['finished', 'Finished it', 'Rate it and say a word'], ['dropped', 'Dropped it', 'Where, and why'], ['later', 'Not started yet, still want it', 'Stays on Up next'], ['forgot', 'Not started, and I forgot what it was', 'I remind you, then you keep it or let it go'], ['not_interested', 'Not interested after all', 'One line teaches the tool']];
 // The book header on every "what happened" and debrief screen: cover, title, a "remind me" panel with what the
 // book was and why it was suggested, and a link to the full book page (opens in a new tab so the flow is not lost).
 function bookHead(r, { eyebrow = null } = {}) {
@@ -249,6 +249,7 @@ function askOutcome(r, { index = 0, total = 1, eyebrow = 'What happened', previo
   setBar(Math.round((index / total) * 100));
   app.innerHTML = h`<div class="interview"><div class="q">
     <div class="meta"><span class="eyebrow">${eyebrow}${total > 1 ? raw(h` · <span class="tabular">${index + 1} of ${total}</span>`) : ''}</span></div>
+    ${index === 0 && total > 1 ? raw(h`<p class="help" style="margin-bottom:16px">Before the new questions: what became of the books I suggested earlier? It takes a moment and teaches me the most. "Skip for now" goes straight to the questions.</p>`) : ''}
     ${bookHead(r)}
     ${previous ? raw(h`<div class="prev">Last time you said: <b>${labelFeedback(previous.feedback)}${previous.outcome?.rating ? `, ${previous.outcome.rating}/5` : ''}${previous.feedback_note ? ` · ${previous.feedback_note}` : ''}</b>. Change it below, or go back.</div>`) : ''}
     <div class="opts" style="margin-top:20px">${OUTCOMES.map(([id, label, hint], k) => raw(h`<button class="opt" data-id="${id}"><span class="kbd">${k + 1}</span><span><span class="l">${label}</span><span class="h">${hint}</span></span><span class="ck">✓</span></button>`))}</div>
@@ -264,6 +265,15 @@ function askOutcome(r, { index = 0, total = 1, eyebrow = 'What happened', previo
     if (id === 'finished') detail.innerHTML = h`<label class="lbl">Your rating</label><div class="rating-input" role="radiogroup" aria-label="Your rating" data-r="0">${[1, 2, 3, 4, 5].map((n) => raw(h`<span data-n="${n}" role="radio" tabindex="0" aria-label="${n} of 5 stars">★</span>`))}</div><p class="cap sec" style="margin-top:10px">Next: five quick questions on what worked and what did not, while it is fresh.</p>`;
     else if (id === 'dropped') detail.innerHTML = h`<label class="lbl">Around which page?</label><input type="number" id="page" min="1" style="width:120px" placeholder="${r.pages ? 'of ' + r.pages : ''}"><p class="cap sec" style="margin-top:10px">Next: four quick questions on what made you stop. The most useful answers in the app.</p>`;
     else if (id === 'not_interested') detail.innerHTML = h`<label class="lbl">Why not? One line.</label><textarea id="reason" rows="2"></textarea>`;
+    else if (id === 'forgot') {
+      // Open the reminder (what the book is, why it was suggested), then two plain choices. Letting go is not a verdict on the book.
+      const panel = document.getElementById('remind'), rb = document.getElementById('remindBtn');
+      if (panel) { panel.hidden = false; if (rb) rb.textContent = 'Hide the reminder'; }
+      next.hidden = true;
+      detail.innerHTML = h`<p class="cap sec">${panel ? 'That is what it was, and why I suggested it.' : 'I have no notes on this one beyond the title; its page has the description.'} Keep it, or let it go? Letting go says nothing against the book, and I will not ask about it again.</p><div class="row" style="margin-top:10px"><button class="btn sm primary" id="keepIt">Keep it for later</button><button class="btn sm" id="letGo">Let it go</button></div>`;
+      document.getElementById('keepIt').onclick = () => { outcome = 'later'; next.click(); };
+      document.getElementById('letGo').onclick = () => { outcome = 'forgot'; next.click(); };
+    }
     else detail.innerHTML = h`<p class="cap sec">Kept on Up next. It will not be suggested again, and I will ask again later.</p>`;
     const ri = detail.querySelector('.rating-input'); if (ri) ri.querySelectorAll('span').forEach((sp) => sp.onclick = () => { ri.dataset.r = sp.dataset.n; ri.querySelectorAll('span').forEach((x) => x.classList.toggle('on', Number(x.dataset.n) <= Number(sp.dataset.n))); });
     const ta = detail.querySelector('textarea'); if (ta) ta.focus(); const inp = detail.querySelector('input'); if (inp) inp.focus();
@@ -282,7 +292,7 @@ function askOutcome(r, { index = 0, total = 1, eyebrow = 'What happened', previo
   document.getElementById('skipAll').onclick = () => skip();
   window.onkeydown = (e) => {
     if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); next.click(); } return; }
-    if (/^[1-4]$/.test(e.key)) { e.preventDefault(); pick(OUTCOMES[Number(e.key) - 1][0]); }
+    if (/^[1-5]$/.test(e.key)) { e.preventDefault(); pick(OUTCOMES[Number(e.key) - 1][0]); }
     else if (e.key === 'Enter') { e.preventDefault(); next.click(); }
   };
 }

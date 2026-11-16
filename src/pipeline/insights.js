@@ -13,7 +13,7 @@ export { sayVsDo, fingerprint, fingerprintCompact, debriefPatterns };
 // ---------- loop closer ----------
 export function followups(excludeSessionId = null) { return DB.pendingFollowups(excludeSessionId, 6); }
 
-/** outcome: finished | dropped | later | not_interested. page/reason/rating optional. */
+/** outcome: finished | dropped | later | forgot | not_interested. page/reason/rating optional. */
 export function recordOutcome(recId, { outcome, page = null, reason = null, rating = null }) {
   const rec = DB.db.prepare('SELECT * FROM recommendations WHERE id = ?').get(recId);
   if (!rec) throw new Error('no such recommendation');
@@ -34,6 +34,9 @@ export function recordOutcome(recId, { outcome, page = null, reason = null, rati
     DB.setRecommendationFeedback(recId, 'not_for_me', reason, { outcome, reason, at });
     DB.addToShelf({ shelfId: shelf('Not for me').id, bookId: rec.book_id, note: reason, exclusiveStatus: true });
     if (reason) DB.setFact({ key: 'rejected_' + rec.book_id, value: { note: reason }, kind: 'trait', confidence: 0.6, source: 'feedback', note: 'Rejected recommendation' });
+  } else if (outcome === 'forgot') {
+    // Never started and no longer remembered: let go without a judgement. No shelf, no lesson about her taste, never asked again.
+    DB.setRecommendationFeedback(recId, 'not_now', reason, { outcome, reason, at });
   } else {
     DB.setRecommendationFeedback(recId, 'later', reason, { outcome, reason, at });
     DB.addToShelf({ shelfId: shelf('Up next').id, bookId: rec.book_id, note: reason, exclusiveStatus: true });
