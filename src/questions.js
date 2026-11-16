@@ -22,9 +22,9 @@ export const ONBOARDING = [
     placeholder: 'e.g. Dune - too much lore before anything happened; The Alchemist - preachy; ...',
   },
   {
-    id: 'doorway', layer: 'onboarding', type: 'single',
+    id: 'doorway', layer: 'onboarding', type: 'multi', max: 2,
     text: 'When a book grabs you, what is usually the door you walk in through?',
-    help: 'Nancy Pearl\'s "doorways". Pick the one that is true most often.',
+    help: 'Nancy Pearl\'s "doorways". Pick what is true most often. Two is fine.',
     options: [
       S('story', 'Story', 'What happens next; I turn pages for the plot'),
       S('character', 'Character', 'I need to care about someone; I would follow them anywhere'),
@@ -44,7 +44,7 @@ export const ONBOARDING = [
     ],
   },
   {
-    id: 'prose_baseline', layer: 'onboarding', type: 'single',
+    id: 'prose_baseline', layer: 'onboarding', type: 'multi',
     text: 'Prose you enjoy most?',
     options: [
       S('spare', 'Spare and clean', 'Hemingway, Sally Rooney, thrillers'),
@@ -54,13 +54,12 @@ export const ONBOARDING = [
     ],
   },
   {
-    id: 'feel_vs_think', layer: 'onboarding', type: 'single',
-    text: 'Which of these is closer to why you read?',
-    help: 'Two separate appetites: feeling a lot, and working the mind. Both is a real answer.',
+    id: 'feel_vs_think', layer: 'onboarding', type: 'multi',
+    text: 'Which of these are why you read?',
+    help: 'Separate appetites. Pick every one that is true.',
     options: [
       S('feel', 'To feel deeply', 'I want to be moved, even wrecked'),
       S('think', 'To think hard', 'I want to be challenged; effort is pleasure'),
-      S('both', 'Both, equally', ''),
       S('escape', 'Mostly to escape', 'Transport me; the rest is optional'),
       S('learn', 'To learn', 'I read mostly to know things'),
     ],
@@ -197,7 +196,7 @@ export const CHECKIN = [
     ],
   },
   {
-    id: 'need_now', layer: 'checkin', type: 'single',
+    id: 'need_now', layer: 'checkin', type: 'multi', max: 3,
     text: 'What do you need a book to DO for you right now?',
     help: 'Mood management: a low mood can want distraction, comfort, or company in the dark. Only you know which.',
     options: [
@@ -227,7 +226,7 @@ export const CHECKIN = [
     options: [S('1', 'Easy'), S('2', ''), S('3', 'Medium'), S('4', ''), S('5', 'Demanding')],
   },
   {
-    id: 'time_now', layer: 'checkin', type: 'single',
+    id: 'time_now', layer: 'checkin', type: 'multi',
     text: 'How will you read this one?',
     options: [
       S('one_sitting', 'One sitting / a weekend', 'Short, immersive'),
@@ -435,7 +434,7 @@ export const DEBRIEF = [
     options: [S('exactly', 'Yes, exactly that', 'The warning was right'), S('partly', 'Partly', 'That, and something else'), S('elsewhere', 'No, the problem was elsewhere', 'The warning missed what mattered'), S('no_problem', 'No problem at all', 'The warning was needless')],
   },
   {
-    id: 'more_like', layer: 'debrief', type: 'single', text: 'What next, after this one?',
+    id: 'more_like', layer: 'debrief', type: 'multi', text: 'What next, after this one?',
     options: [S('author', 'More by this author', 'Same hands'), S('feeling', 'More of this feeling', 'Same job, different book'), S('different', 'Something different now', 'Enough of this for a while'), S('never', 'Never again', 'Not this kind of book')],
   },
   { id: 'words', layer: 'debrief', type: 'text', text: 'Anything else, in your own words?', help: 'What you would tell a friend. What was bothering you. Half a sentence is enough.', placeholder: 'e.g. loved the sister, hated the romance; the last 50 pages saved it; too many dream sequences' },

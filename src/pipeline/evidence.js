@@ -22,7 +22,7 @@ export function sayVsDo() {
   };
   for (const r of rows) {
     const m = moods[r.session_id] || {};
-    bump('need', m.need, r); bump('mood', m.mood, r); bump('slot', (r.slot || '').replace(/_/g, ' '), r);
+    for (const n of String(m.need || '').split(' + ')) bump('need', n, r); bump('mood', m.mood, r); bump('slot', (r.slot || '').replace(/_/g, ' '), r);
   }
   const finish = (g) => Object.fromEntries(Object.entries(g).map(([k, v]) => [k, { ...v, finishedTags: counter(v.finishedTags).slice(0, 5).map(([t]) => t), droppedTags: counter(v.droppedTags).slice(0, 5).map(([t]) => t) }]));
   const out = { n: rows.length, told: rows.filter((r) => r.feedback).length, need: finish(by.need), mood: finish(by.mood), slot: finish(by.slot), sentences: [] };
@@ -76,7 +76,7 @@ export function debriefPatterns() {
   const killers = counter(dropped.flatMap((r) => (r.answers.bothered || []).filter((x) => x !== 'nothing')));
   const fit = counter(rows.map((r) => r.answers.fit_mood));
   const warning = counter(rows.map((r) => r.answers.warning));
-  const next = counter(rows.map((r) => r.answers.more_like));
+  const next = counter(rows.flatMap((r) => r.answers.more_like || []));
   const loved = finished.filter((r) => r.rating >= 4), meh = finished.filter((r) => r.rating && r.rating <= 2);
   const sentences = [];
   if (rows.length >= 2 && worked.length) sentences.push(`Across ${finished.length} debriefed ${finished.length === 1 ? 'book' : 'books'} you finished, what did the work most often: ${worked.slice(0, 3).map(([k, n]) => `${lab('worked', k)} (${n})`).join(', ')}.`);

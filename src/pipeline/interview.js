@@ -152,7 +152,7 @@ export async function generateAdaptive(sessionId) {
   const qs = (data.questions || []).slice(0, 7).map((q, i) => ({
     id: `adaptive_${i + 1}_${(q.id || 'q').replace(/^adaptive_/, '').replace(/\W+/g, '_').slice(0, 40)}`,
     must: /^(adaptive_)?must_/.test(q.id || '') || undefined,
-    layer: 'adaptive', type: q.type === 'pair' ? 'single' : q.type, text: q.text, help: q.help || '',
+    layer: 'adaptive', type: q.type === 'pair' || /^(adaptive_)?must_/.test(q.id || '') ? 'single' : 'multi', // her own questions take several answers; only a blurb choice and a strictness ladder are one-of text: q.text, help: q.help || '',
     options: q.options.map((o, j) => ({ id: o.id || `o${j + 1}`, label: o.label, hint: o.hint || '' })),
     pair: q.type === 'pair',
   }));

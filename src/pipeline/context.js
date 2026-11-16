@@ -12,7 +12,7 @@ export function debriefLine(d) {
   if (a.bothered?.length) parts.push(`bothered: ${lab('bothered', a.bothered).join(', ')}`);
   if (a.fit_mood) parts.push(`did the job: ${a.fit_mood.replace(/_/g, ' ')}`);
   if (a.warning) parts.push(`tool's warning was: ${a.warning.replace(/_/g, ' ')}`);
-  if (a.more_like) parts.push(`next: ${lab('more_like', a.more_like).join('')}`);
+  if (a.more_like) parts.push(`next: ${lab('more_like', a.more_like).join(', ')}`);
   if (a.followup?.question) parts.push(`asked "${a.followup.question}" -> ${(a.followup.labels || []).join(', ')}`);
   if (d.text) parts.push(`own words: "${String(d.text).slice(0, 300)}"`);
   return parts.join(' | ');

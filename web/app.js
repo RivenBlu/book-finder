@@ -1317,10 +1317,11 @@ function moodSummary(all) {
   const count = (arr) => { const c = {}; for (const x of arr) if (x) c[x] = (c[x] || 0) + 1; return Object.entries(c).sort((a, b) => b[1] - a[1]); };
   const out = [];
   const [topMood] = count(all.flatMap(moodWords));
-  const [topNeed] = count(all.map((m) => m.need));
+  const needs = (list) => list.flatMap((m) => String(m.need || '').split(' + ')).filter(Boolean);
+  const [topNeed] = count(needs(all));
   if (topMood) out.push(`Most often you arrive ${topMood[0].toLowerCase()} (${topMood[1]} of ${all.length} check-ins)${topNeed ? ` and ask the book to ${topNeed[0].toLowerCase()}` : ''}.`);
   const hard = all.filter((m) => [].concat(m.mood_id || []).some((x) => HARD_MOODS.includes(x)));
-  const hardNeeds = count(hard.map((m) => m.need));
+  const hardNeeds = count(needs(hard));
   if (hard.length >= 2 && hardNeeds.length) out.push(`On harder days (${hard.length}) you have asked for: ${hardNeeds.slice(0, 3).map(([k, v]) => `${k.toLowerCase()} ×${v}`).join(', ')}.`);
   const avg = (k) => { const v = all.map((m) => m[k]).filter(Boolean); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
   const d = avg('demand'), t = avg('tone'), s = avg('safe');

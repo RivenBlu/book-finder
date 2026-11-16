@@ -539,7 +539,7 @@ export function moodLog(limit = 60) {
     const label = (id) => opts.find((o) => o.id === id)?.label || String(id);
     const key = r.q_id.replace(/_now$/, '');
     if (['demand', 'tone', 'safe'].includes(key)) e[key] = Number(ans) || null;
-    else if (Array.isArray(ans)) e[key] = key === 'mood' ? ans.map(label).join(' + ') : ans.map(label); // several moods read as one line
+    else if (Array.isArray(ans)) e[key] = ['mood', 'need', 'time'].includes(key) ? ans.map(label).join(' + ') : ans.map(label); // several moods or needs read as one line
     else e[key] = ans != null ? label(ans) : null;
     e[key + '_id'] = ans;
     if (r.free_text) e[key + '_text'] = r.free_text;
