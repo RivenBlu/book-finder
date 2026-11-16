@@ -189,7 +189,7 @@ function nowSection(st) {
     </div></div>`) : ''}
     ${up.length ? raw(h`<div class="eyebrow" style="margin-top:${b ? 28 : 0}px">Up next · <span class="tabular">${up.length}</span> ${up.length === 1 ? 'book' : 'books'}${up.some((x) => x.fit != null) ? ' · best fit first' : ''}</div>
       <div class="uprow">${up.slice(0, 8).map((x) => raw(h`<a href="#book/${x.book_id}" title="${x.title}">${coverImg(x.cover, x.title)}<span class="fit tabular">${x.fit != null ? x.fit + '%' : ' '}</span></a>`))}</div>
-      <p class="cap" style="margin-top:10px"><a href="#shelves/${st.upNext.id}">${up.length > 1 ? 'Which of these tonight? →' : 'Open the shelf →'}</a>${up.length > 8 ? ` · and ${up.length - 8} more` : ''}</p>`) : ''}
+      <p class="cap" style="margin-top:10px"><a href="#shelves/${st.upNext.id}">${up.length > 1 ? 'Which of these tonight? →' : 'Open the shelf →'}</a>${up.length > 8 ? raw(h`<span class="sec"> ${up.length - 8} more on the shelf.</span>`) : ''}</p>`) : ''}
   </section>`;
 }
 
@@ -1080,7 +1080,7 @@ async function book(id) {
   app.innerHTML = h`<article class="pick section" style="padding-top:8px">
     <div>${coverImg(b.cover, b.title)}</div>
     <div>
-      <h1 style="font-family:var(--reading);font-size:32px">${b.title}</h1>
+      <h1 style="font-size:34px">${b.title}</h1>
       <div class="by" style="font-size:17px">${b.author} · ${b.year || ''}${b.pages ? ` · ${b.pages} pages` : ''}${b.language ? ` · ${b.language}` : ''}</div>
       <div class="row" style="margin-top:8px">${rating(b.rating, b.ratings_count)}${b.rating_dist ? raw(h`<span class="dist" title="Rating spread, 1 to 5 stars">${b.rating_dist.map((n) => raw(h`<span style="height:${Math.max(2, Math.round((n / Math.max(1, ...b.rating_dist)) * 28))}px" title="${Math.round((n / Math.max(1, total)) * 100)}%"></span>`))}</span>`) : ''}</div>
       <div class="row" style="gap:6px;margin-top:10px">${b.genres.slice(0, 6).map((g) => raw(h`<span class="chip">${g}</span>`))}</div>
@@ -1322,7 +1322,7 @@ function moodSummary(all) {
 function wireMoodChart() {
   const tip = document.getElementById('mtip'); if (!tip) return;
   app.querySelectorAll('[data-tip]').forEach((el) => {
-    el.onmouseenter = el.onfocus = () => { tip.textContent = el.dataset.tip; tip.hidden = false; const r = el.getBoundingClientRect(); tip.style.left = Math.min(window.innerWidth - tip.offsetWidth - 16, Math.max(16, r.left + r.width / 2 - tip.offsetWidth / 2)) + 'px'; tip.style.top = (r.top + window.scrollY - tip.offsetHeight - 10) + 'px'; };
+    el.onmouseenter = el.onfocus = () => { tip.textContent = el.dataset.tip; tip.hidden = false; const r = el.getBoundingClientRect(); const z = parseFloat(getComputedStyle(document.body).zoom) || 1; tip.style.left = Math.min(window.innerWidth - tip.offsetWidth - 16, Math.max(16, r.left + r.width / 2 - tip.offsetWidth / 2)) / z + 'px'; tip.style.top = (r.top + window.scrollY - tip.offsetHeight - 10) / z + 'px'; };
     el.onmouseleave = el.onblur = () => (tip.hidden = true);
   });
 }
