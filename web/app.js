@@ -722,9 +722,15 @@ function strip(g, d) {
 const NUDGES = ['More romance', 'Less romance', 'Funnier', 'Faster start', 'Better written', 'Shorter', 'Standalone only', 'Less young-adult', 'Stranger', 'Safer choices'];
 const SLIDERS = [['Lighter', 'Darker'], ['Slower burn', 'Faster'], ['Sweeter', 'Spicier'], ['Cleverer', 'More pure fun']];
 let bestFitEver = null;
+const REMOVED = 'Removed from the list';
+// One line of answers under every book in a report: where to keep it, what you think of it, or take it off the list.
+function rowActs(r) {
+  return raw(h`<button class="linkbtn" data-shelf="Up next" data-rec="${r.id}">Save to Up next</button><button class="linkbtn" data-shelf="Maybe" data-rec="${r.id}">Keep as maybe</button><button class="linkbtn" data-react="love" data-rec="${r.id}">Love it</button><button class="linkbtn" data-react="hate" data-rec="${r.id}">Hate it</button><button class="linkbtn" data-react="remove" data-rec="${r.id}">Remove</button><select class="linksel" data-more="${r.id}" data-title="${r.title}" aria-label="More answers"><option value="">More…</option><option value="more">More like this</option><option value="less">Less like this</option><option value="read">I have read it</option><option value="notforme">Not for me</option></select>`);
+}
 function pickRow(r, i, shelves, sessionId, giftFor) {
+  if (r.feedback_note === REMOVED) return raw('');
   const f = r.fit;
-  return raw(h`<div class="rowpick">
+  return raw(h`<div class="rowpick" data-row="${r.id}">
     <div class="rowhead" data-toggle="${r.id}" role="button" tabindex="0" aria-expanded="false">
       <span class="rn tabular">${i + 1}</span>
       ${coverImg(r.cover, r.title, 'cover small')}
@@ -733,14 +739,15 @@ function pickRow(r, i, shelves, sessionId, giftFor) {
         ${f.check?.missing?.length ? raw(h`<div class="cap" style="color:var(--danger);margin-top:6px">Misses a must-have: ${f.check.missing.join('; ')}</div>`) : ''}</div>
       ${fitBlock(f)}
     </div>
-    <div class="rowacts noprint"><button class="linkbtn" data-toggle="${r.id}" data-label>Read the full case</button>${giftFor ? '' : raw(h`<button class="linkbtn" data-shelf="Up next" data-rec="${r.id}">Save to Up next</button><button class="linkbtn" data-nudge="more like ${r.title}">More like this</button><button class="linkbtn" data-nudge="less like ${r.title}">Less like this</button>`)}<span class="saved" data-saved="${r.id}">${r.feedback ? labelFeedback(r.feedback) : ''}</span></div>
+    <div class="rowacts noprint"><button class="linkbtn" data-toggle="${r.id}" data-label>Read the full case</button>${giftFor ? '' : raw(h`${rowActs(r)}`)}<span class="saved" data-saved="${r.id}">${r.feedback ? labelFeedback(r.feedback) : ''}</span></div>
     <div class="rowfull" id="full-${r.id}" hidden>${pickCard(r, shelves, sessionId, giftFor)}</div>
   </div>`);
 }
 // A borderline book in the same row format: the judge's one-line answer instead of a full case (that lives on its book page).
 function maybeRow(r, i) {
+  if (r.feedback_note === REMOVED) return raw('');
   const c = r.fit.check;
-  return raw(h`<div class="rowpick">
+  return raw(h`<div class="rowpick" data-row="${r.id}">
     <div class="rowhead static">
       <span class="rn tabular">${i + 1}</span>
       <a href="#book/${r.book_id}">${coverImg(r.cover, r.title, 'cover small')}</a>
@@ -748,7 +755,7 @@ function maybeRow(r, i) {
         <div class="hl2">${c.headline || r.fit.one_line || ''}</div>${strip(c.glance, r.review_digest)}</div>
       ${fitBlock(r.fit)}
     </div>
-    <div class="rowacts noprint"><a href="#book/${r.book_id}">Read the verdict</a><button class="linkbtn" data-shelf="Up next" data-rec="${r.id}">Save to Up next</button><button class="linkbtn" data-nudge="more like ${r.title}">More like this</button><button class="linkbtn" data-nudge="less like ${r.title}">Less like this</button><span class="saved" data-saved="${r.id}">${r.feedback ? labelFeedback(r.feedback) : ''}</span></div>
+    <div class="rowacts noprint"><a href="#book/${r.book_id}">Read the verdict</a>${rowActs(r)}<span class="saved" data-saved="${r.id}">${r.feedback ? labelFeedback(r.feedback) : ''}</span></div>
   </div>`);
 }
 async function results(id) {
@@ -831,7 +838,9 @@ async function results(id) {
     const tokens = new Set(); const tokEl = document.getElementById('nudgeTokens'); const status = document.getElementById('nudgeStatus');
     const paintTokens = () => { tokEl.innerHTML = [...tokens].map((t) => h`<button class="chip lamp" data-tok="${t}" title="Remove">${t} ✕</button>`).join(''); tokEl.querySelectorAll('[data-tok]').forEach((x) => x.onclick = () => { tokens.delete(x.dataset.tok); paintTokens(); }); };
     app.querySelectorAll('[data-n]').forEach((c) => c.onclick = () => c.setAttribute('aria-pressed', c.getAttribute('aria-pressed') === 'true' ? 'false' : 'true'));
-    app.querySelectorAll('[data-nudge]').forEach((x) => x.onclick = () => { tokens.add(x.dataset.nudge); paintTokens(); toast('Added. Press "Adjust the list" when you are ready.'); document.getElementById('nudgeSec').scrollIntoView({ behavior: 'smooth', block: 'center' }); });
+    const addNudge = (t) => { tokens.add(t); paintTokens(); toast('Added. Press "Adjust the list" when you are ready.'); document.getElementById('nudgeSec').scrollIntoView({ behavior: 'smooth', block: 'center' }); };
+    app.querySelectorAll('[data-nudge]').forEach((x) => x.onclick = () => addNudge(x.dataset.nudge));
+    app.onBfNudge = addNudge;
     const run = act(nudgeGo, async () => {
       const slid = [...app.querySelectorAll('[data-sl]')].map((x) => { const v = Number(x.value); if (!v) return ''; const [lo, hi] = SLIDERS[Number(x.dataset.sl)]; return `${Math.abs(v) === 2 ? 'much ' : ''}${(v < 0 ? lo : hi).toLowerCase()}`; });
       const parts = [...slid, ...[...app.querySelectorAll('[data-n][aria-pressed="true"]')].map((c) => c.dataset.n.toLowerCase()), ...tokens, document.getElementById('nudgeText').value.trim()].filter(Boolean);
@@ -1068,13 +1077,33 @@ function shelfMenu(r, shelves) {
     <select class="btn sm" data-custom="${r.id}" style="width:auto"><option value="">More shelves…</option>${shelves.filter((s) => s.kind === 'custom').map((s) => raw(h`<option value="${s.name}">${s.name}</option>`))}<option value="__new">+ New shelf</option></select>`);
 }
 function wireShelfButtons() {
+  app.onBfNudge = null;
   app.querySelectorAll('[data-shelf]').forEach((b) => b.onclick = async () => {
     const shelf = b.dataset.shelf; let note = null;
     if (b.dataset.ask) { note = await askLine(b.dataset.ask, b.dataset.prefill || ''); if (note === null) return; }
-    const fb = shelf === 'Not for me' ? 'not_for_me' : shelf === 'Finished' ? 'already_read' : shelf === 'Reading now' ? 'started' : 'saved';
+    const fb = shelf === 'Not for me' ? 'not_for_me' : shelf === 'Finished' ? 'already_read' : shelf === 'Reading now' ? 'started' : shelf === 'Maybe' ? 'maybe' : 'saved';
     await post(`/api/recommendations/${b.dataset.rec}/feedback`, { feedback: fb, note, shelf });
     const el = app.querySelector(`[data-saved="${b.dataset.rec}"]`); if (el) el.textContent = `✓ ${shelf}`;
     toast(`Saved to ${shelf}`);
+  });
+  const mark = (rec, text) => { const el = app.querySelector(`[data-saved="${rec}"]`); if (el) el.textContent = text; };
+  const renumber = () => app.querySelectorAll('.rowpick .rn').forEach((x, i) => { x.textContent = i + 1; });
+  renumber();
+  const react = async (rec, kind) => {
+    const fb = (payload) => post(`/api/recommendations/${rec}/feedback`, payload);
+    if (kind === 'love') { await fb({ feedback: 'saved', note: 'Loved this suggestion', shelf: 'Up next' }); mark(rec, '✓ Loved · on Up next'); toast('Noted as a great pick, and saved to Up next'); }
+    else if (kind === 'hate' || kind === 'notforme') {
+      const why = await askLine(kind === 'hate' ? 'What do you hate about it? One line teaches the tool.' : 'Why not? One line teaches the tool.'); if (why === null) return;
+      await fb({ feedback: 'not_for_me', note: kind === 'hate' ? `Hated the suggestion${why ? ': ' + why : ''}` : why, shelf: 'Not for me' });
+      mark(rec, kind === 'hate' ? '✓ Hated · I will steer away from this' : '✓ Not for me'); app.querySelector(`[data-row="${rec}"]`)?.classList.add('faded'); toast('Noted. It will not come back.');
+    } else if (kind === 'remove') { await fb({ feedback: 'not_now', note: REMOVED }); app.querySelector(`[data-row="${rec}"]`)?.remove(); renumber(); toast('Removed from this list. No judgement recorded.'); }
+    else if (kind === 'read') { const note = await askLine('Already read it. What did you think?'); if (note === null) return; await fb({ feedback: 'already_read', note, shelf: 'Finished' }); mark(rec, '✓ Already read'); toast('Saved to Finished'); }
+  };
+  app.querySelectorAll('[data-react]').forEach((b) => b.onclick = () => react(b.dataset.rec, b.dataset.react));
+  app.querySelectorAll('[data-more]').forEach((sel) => sel.onchange = () => {
+    const v = sel.value; sel.value = ''; if (!v) return;
+    if (v === 'more' || v === 'less') { app.onBfNudge?.(`${v} like ${sel.dataset.title}`); }
+    else react(sel.dataset.more, v);
   });
   app.querySelectorAll('[data-custom]').forEach((sel) => sel.onchange = async () => {
     let name = sel.value; if (!name) return;
