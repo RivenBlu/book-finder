@@ -229,7 +229,8 @@ export const CHECKIN = [
     id: 'time_now', layer: 'checkin', type: 'multi',
     text: 'How will you read this one?',
     options: [
-      S('one_sitting', 'One sitting / a weekend', 'Short, immersive'),
+      S('one_sitting', 'One sitting', 'Short enough to finish in an evening'),
+      S('binge', 'Devour it in a day or two', 'Full focus, up all night if needed. Long is fine'),
       S('this_week', 'Over a week or two', ''),
       S('slow_month', 'Slowly, over a month or more', 'A companion book'),
       S('commute', 'In fragments (commute, waiting)', 'Short chapters help'),
