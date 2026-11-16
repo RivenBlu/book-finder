@@ -88,6 +88,10 @@ const askLine = (title, opts = {}) => dialogBox({ title, input: true, ok: 'Save'
 const confirmBox = (title, opts = {}) => dialogBox({ title, ok: 'Yes', ...opts });
 const infoBox = (title, body) => dialogBox({ title, body, ok: 'Close', cancel: '' });
 
+// Answer shortcuts: 1 to 9, then a, b, c… so a long list has a key on every row.
+const optKey = (i) => (i < 9 ? String(i + 1) : String.fromCharCode(65 + i - 9));
+const optIndex = (e) => { if (e.ctrlKey || e.metaKey || e.altKey || e.key.length !== 1) return -1; const k = e.key.toLowerCase(); return /[1-9]/.test(k) ? Number(k) - 1 : /[a-z]/.test(k) ? k.charCodeAt(0) - 97 + 9 : -1; };
+
 // ---------- theme ----------
 const themeBtn = document.getElementById('themeBtn');
 themeBtn.onclick = () => {
@@ -319,7 +323,7 @@ function askClosed(q, { index = 0, total = 1, eyebrow = 'After reading', head = 
     <div class="text">${q.text}</div>
     ${q.help ? raw(h`<p class="help">${q.help}</p>`) : ''}
     ${isText ? raw(h`<textarea id="free" placeholder="${q.placeholder || ''}"></textarea>`) : raw(h`
-      <div class="opts">${q.options.map((o, i) => raw(h`<button class="opt" data-id="${o.id}"><span class="kbd">${i + 1}</span><span><span class="l">${o.label}</span>${o.hint ? raw(h`<span class="h">${o.hint}</span>`) : ''}</span><span class="ck">✓</span></button>`))}</div>
+      <div class="opts">${q.options.map((o, i) => raw(h`<button class="opt" data-id="${o.id}"><span class="kbd">${optKey(i)}</span><span><span class="l">${o.label}</span>${o.hint ? raw(h`<span class="h">${o.hint}</span>`) : ''}</span><span class="ck">✓</span></button>`))}</div>
       <div class="other"><button class="btn sm ghost" id="otherBtn">✎ Other / my own words</button><textarea id="free" hidden placeholder="Say it your way. Free text is read as the strongest signal."></textarea></div>`)}
     <div class="qactions"><button class="btn primary" id="next">Continue <span class="kbd" style="background:transparent;color:inherit;border-color:currentColor;opacity:.7">↵</span></button><button class="btn ghost" id="skip">Skip</button><span class="hint">${isMulti ? 'Pick any that apply, then Continue.' : isText ? 'Ctrl+Enter to continue.' : 'Press a number, or click.'}</span></div>
   </div></div>`;
@@ -342,7 +346,7 @@ function askClosed(q, { index = 0, total = 1, eyebrow = 'After reading', head = 
   window.onkeydown = (e) => {
     if (e.target.tagName === 'TEXTAREA') { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); document.getElementById('next').click(); } return; }
     if (e.target.tagName === 'INPUT') return;
-    if (/^[1-9]$/.test(e.key) && !isText) { const b = app.querySelectorAll('.opt')[Number(e.key) - 1]; if (b) { e.preventDefault(); b.click(); } }
+    if (optIndex(e) >= 0 && !isText) { const b = app.querySelectorAll('.opt')[optIndex(e)]; if (b) { e.preventDefault(); b.click(); } }
     else if (e.key === 'Enter') { e.preventDefault(); document.getElementById('next').click(); }
   };
   // Screen readers land on the new question; sighted readers see no outline (the focus is not from the keyboard).
@@ -500,7 +504,7 @@ async function renderQuestion(id, nx, mode, reaction) {
     ${q.previous ? raw(h`<div class="prev">Last time: <b>${(q.previous.labels || []).join(', ')}${q.previous.text ? (q.previous.labels?.length ? ' · ' : '') + q.previous.text : ''}</b>. Press Enter to keep it, or change it.</div>`) : ''}
     ${isText ? raw(h`<textarea id="free" placeholder="${q.placeholder || ''}">${prevText}</textarea>${q.suggestions?.length ? raw(h`<div class="sugg"><span class="cap sec">You asked for this before. Tap to use it again:</span>${q.suggestions.map((x) => raw(h`<button type="button" class="chip" data-sug="${x.text}">${x.text.slice(0, 90)}</button>`))}</div>`) : ''}`) : raw(h`
       <div class="opts ${isScale ? 'scale' : ''}">
-        ${q.options.map((o, i) => raw(h`${o.group && o.group !== q.options[i - 1]?.group ? raw(h`<div class="optgroup">${o.group}</div>`) : ''}<button class="opt ${sel.includes(o.id) ? 'on' : ''} ${q.pair ? 'pair' : ''}" data-id="${o.id}"><span class="kbd">${isScale ? o.id : i < 9 ? i + 1 : ''}</span><span${isScale && !o.label ? raw(h` aria-label="${o.id} of 5"`) : ''}><span class="l">${q.pair ? o.hint : o.label || (isScale ? '' : o.id)}</span>${!q.pair && o.hint ? raw(h`<span class="h">${o.hint}</span>`) : ''}${q.pair ? raw(h`<span class="h">${o.label}</span>`) : ''}</span><span class="ck">✓</span></button>`))}
+        ${q.options.map((o, i) => raw(h`${o.group && o.group !== q.options[i - 1]?.group ? raw(h`<div class="optgroup">${o.group}</div>`) : ''}<button class="opt ${sel.includes(o.id) ? 'on' : ''} ${q.pair ? 'pair' : ''}" data-id="${o.id}"><span class="kbd">${isScale ? o.id : optKey(i)}</span><span${isScale && !o.label ? raw(h` aria-label="${o.id} of 5"`) : ''}><span class="l">${q.pair ? o.hint : o.label || (isScale ? '' : o.id)}</span>${!q.pair && o.hint ? raw(h`<span class="h">${o.hint}</span>`) : ''}${q.pair ? raw(h`<span class="h">${o.label}</span>`) : ''}</span><span class="ck">✓</span></button>`))}
       </div>
       ${isScale ? raw(h`<div class="scale-ends"><span>${q.left || ''}</span><span>${q.right || ''}</span></div>`) : ''}
       <div class="other"><button class="btn sm ghost" id="otherBtn">✎ Other / my own words</button><textarea id="free" hidden placeholder="Say it your way. Free text is read as the strongest signal.">${prevText}</textarea></div>`)}
@@ -544,7 +548,7 @@ async function renderQuestion(id, nx, mode, reaction) {
   window.onkeydown = (e) => {
     if (e.target.tagName === 'TEXTAREA') { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); submit(false); } return; }
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
-    if (/^[1-9]$/.test(e.key) && !isText) { const b = app.querySelectorAll('.opt')[Number(e.key) - 1]; if (b) { e.preventDefault(); b.click(); } }
+    if (optIndex(e) >= 0 && !isText) { const b = app.querySelectorAll('.opt')[optIndex(e)]; if (b) { e.preventDefault(); b.click(); } }
     else if (e.key === 'Enter') { e.preventDefault(); submit(false); }
     else if (e.key === 'Backspace' && back) { e.preventDefault(); back.click(); }
   };
