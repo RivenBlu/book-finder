@@ -175,16 +175,25 @@ export const ONBOARDING = [
 
 export const CHECKIN = [
   {
-    id: 'mood_now', layer: 'checkin', type: 'single',
+    // Moods follow the two axes psychologists use (pleasant-unpleasant, wound-up-run-down), because the two
+    // low-energy states people lump together want opposite books: calm wants to stay calm, bored wants something to happen.
+    id: 'mood_now', layer: 'checkin', type: 'multi', max: 3,
     text: 'How are you, right now, honestly?',
+    help: 'Pick up to three. Calm, tired, bored and numb are four different states and lead to four different books.',
     options: [
-      S('good_energetic', 'Good and energetic', ''),
-      S('good_calm', 'Good and calm', ''),
-      S('flat', 'Flat / bored / numb', ''),
-      S('stressed', 'Stressed / overloaded', ''),
-      S('low', 'Low / sad', ''),
-      S('raw', 'Raw (grief, breakup, big change)', ''),
-      S('restless', 'Restless / cannot focus', ''),
+      { id: 'good_energetic', label: 'Energetic, up for something', hint: '', group: 'Bright' },
+      { id: 'curious', label: 'Curious, hungry for something new', hint: '', group: 'Bright' },
+      { id: 'good_calm', label: 'Calm and content', hint: 'Nothing needs fixing', group: 'Bright' },
+      { id: 'tired', label: 'Tired, drained', hint: 'Nothing wrong, just no fuel', group: 'Run down' },
+      { id: 'bored', label: 'Bored, understimulated', hint: 'I want something to happen', group: 'Run down' },
+      { id: 'numb', label: 'Flat, numb', hint: 'Not feeling much of anything', group: 'Run down' },
+      { id: 'stressed', label: 'Stressed, overloaded', hint: 'Too much on my plate', group: 'Wound up' },
+      { id: 'anxious', label: 'Anxious, worried', hint: 'My head will not stop', group: 'Wound up' },
+      { id: 'restless', label: 'Restless, cannot focus', hint: '', group: 'Wound up' },
+      { id: 'irritable', label: 'Irritable, fed up', hint: '', group: 'Wound up' },
+      { id: 'low', label: 'Sad, low', hint: '', group: 'Heavy' },
+      { id: 'lonely', label: 'Lonely', hint: '', group: 'Heavy' },
+      { id: 'raw', label: 'Raw (grief, breakup, big change)', hint: '', group: 'Heavy' },
     ],
   },
   {
@@ -201,7 +210,15 @@ export const CHECKIN = [
       S('awe', 'Give me awe', 'Scale, strangeness, wonder'),
       S('learn', 'Teach me something', ''),
       S('feel', 'Make me feel a lot', 'Cry if needed'),
+      S('indulge', 'Pure indulgence', 'A guilty pleasure, no nutritional value required'),
     ],
+  },
+  {
+    // Today's craving: asked early, because it outranks lasting taste for "which book now".
+    id: 'wish_now', layer: 'checkin', type: 'text', suggest: true,
+    text: 'What do you feel like reading today? Guilty pleasures count.',
+    help: 'Today\'s craving beats your usual taste: you can love the classics and want vampire trash tonight. A kind of book, a trope, a place, "like X but Y". Leave it empty if nothing comes to mind.',
+    placeholder: 'e.g. vampire romance, the trashy kind; something set by the sea; like Severance but a novel; no romance please',
   },
   {
     id: 'demand_now', layer: 'checkin', type: 'scale',
@@ -233,8 +250,8 @@ export const CHECKIN = [
     options: [S('1', 'Safe'), S('2', ''), S('3', 'Some edge'), S('4', ''), S('5', 'Disturbing')],
   },
   {
-    id: 'familiar_now', layer: 'checkin', type: 'single',
-    text: 'Familiar or strange?',
+    id: 'familiar_now', layer: 'checkin', type: 'multi',
+    text: 'Familiar or strange? More than one is fine.',
     options: [
       S('familiar', 'Give me more of what I know I love', ''),
       S('adjacent', 'Adjacent: same feeling, new territory', ''),
@@ -269,21 +286,15 @@ export const CHECKIN = [
     placeholder: 'e.g. Tomorrow and Tomorrow and Tomorrow - loved the friendship, dragged in the middle',
   },
   {
-    id: 'wish_now', layer: 'checkin', type: 'text',
-    text: 'Any specific itch? A theme, place, question, trope, or "something like X but Y".',
-    help: 'Optional. This box is where the best hits come from.',
-    placeholder: 'e.g. something set by the sea; a smart book about work; like Severance but a novel; no romance please',
-  },
-  {
-    id: 'musts_now', layer: 'checkin', type: 'text',
+    id: 'musts_now', layer: 'checkin', type: 'text', suggest: true,
     text: 'Anything the book MUST have this time? Non-negotiables only.',
-    help: 'Optional. Every pick will have all of them. A great book that misses one is shown apart, with the question "worth it anyway?"',
-    placeholder: 'e.g. romance at the centre; a clever, capable heroine; high fantasy with real politics; under 400 pages',
+    help: 'Optional. Every pick will have all of them, and I will ask what exactly you mean by each. If a book comes to mind that has exactly this, name it: one example helps more than any description.',
+    placeholder: 'e.g. romance at the centre; a clever, capable heroine; high fantasy with real politics; under 400 pages. Like: Kushiel\'s Dart',
   },
 ];
 
 // Quick mode: the minimum that still produces a good slate when the trait profile already exists.
-export const QUICK_IDS = ['mood_now', 'need_now', 'demand_now', 'time_now', 'familiar_now', 'wish_now', 'musts_now'];
+export const QUICK_IDS = ['mood_now', 'need_now', 'wish_now', 'demand_now', 'tone_now', 'time_now', 'familiar_now', 'musts_now'];
 
 // Reading path: a few books over weeks that form an arc, from where you are to where you want to be.
 export const PATH = [

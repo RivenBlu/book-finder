@@ -395,3 +395,69 @@ svg .star { animation: twinkle 3.2s ease-in-out infinite; transform-origin: cent
 
 /* Phones: the menu scrolls sideways; a soft fade on the edge shows there is more (it goes away at the end). */
 nav.more-right { -webkit-mask-image: linear-gradient(to right, #000 82%, transparent); mask-image: linear-gradient(to right, #000 82%, transparent); }
+
+
+/* ---- Round 7: grouped moods, reusable wishes, candidate cards, ranked list, adjusting, must-haves, home ---- */
+.optgroup { font-family: var(--ui); font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); margin: 12px 0 2px; }
+.optgroup:first-child { margin-top: 0; }
+.sugg { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+.sugg .chip, .chip[data-n], .chip[data-tok] { cursor: pointer; height: auto; min-height: 28px; padding: 6px 12px; white-space: normal; text-align: left; line-height: 1.3; }
+.sugg .chip:hover, .chip[data-n]:hover { border-color: var(--ink-2); color: var(--ink); }
+.chip[aria-pressed="true"] { background: var(--lamp); color: var(--lamp-ink); border-color: var(--lamp); }
+.strip { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.strip .chip { height: auto; min-height: 26px; padding: 4px 10px; font-size: 13px; white-space: normal; line-height: 1.3; }
+.strip .chip b { color: var(--ink); font-weight: 600; }
+
+.meanwhile { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-top: 20px; padding: 12px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.cands { display: grid; gap: 0; margin-top: 12px; }
+.cand { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 14px; padding: 14px 0; border-top: 1px solid var(--line); animation: qin .3s var(--ease) both; }
+.cand .cover.small { width: 56px; height: 84px; }
+.cand .ttl { font-family: var(--reading); font-size: 18px; font-weight: 600; line-height: 1.25; }
+.cand .by { font-family: var(--ui); font-size: 14px; color: var(--ink-2); margin-top: 2px; }
+.cand .line { font-size: 16px; line-height: 1.45; margin-top: 6px; max-width: 62ch; }
+.cand .st { font-family: var(--ui); font-size: 14px; color: var(--lamp); font-weight: 500; margin-top: 6px; }
+.cand.out .cover, .cand.out .ttl, .cand.out .line { opacity: .45; }
+.cand.out .st { color: var(--ink-2); }
+
+.rowpicks { display: grid; }
+.rowpick { border-top: 1px solid var(--line); padding: 16px 0 14px; }
+.rowpick:first-child { border-top: 0; padding-top: 4px; }
+.rowhead { display: grid; grid-template-columns: 22px 64px minmax(0, 1fr) auto; gap: 16px; align-items: start; cursor: pointer; border-radius: 10px; }
+.rowhead:hover .ttl { text-decoration: underline; text-underline-offset: 3px; }
+.rowhead .rn { font-family: var(--ui); font-size: 15px; font-weight: 700; color: var(--ink-2); padding-top: 4px; }
+.rowhead .cover.small { width: 64px; height: 96px; }
+.rowhead .ttl { font-family: var(--reading); font-size: 21px; font-weight: 600; line-height: 1.2; }
+.rowhead .by { font-family: var(--ui); font-size: 14px; color: var(--ink-2); margin-top: 3px; }
+.rowhead .by b { color: var(--amber-ink); background: var(--amber); padding: 1px 8px; border-radius: 999px; font-weight: 600; white-space: nowrap; }
+.rowhead .hl2 { font-size: 17px; line-height: 1.4; margin-top: 6px; max-width: 60ch; }
+.fitb { display: grid; justify-items: end; gap: 4px; font-family: var(--ui); min-width: 104px; text-align: right; }
+.fitb b { font-family: var(--display); font-size: 30px; font-weight: 600; line-height: 1; }
+.fitb .m { width: 104px; height: 6px; border-radius: 999px; background: var(--tint); overflow: hidden; }
+.fitb .m i { display: block; height: 100%; background: var(--lamp); border-radius: 999px; }
+.fitb span { font-size: 13px; color: var(--ink-2); }
+.rowacts { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; margin: 10px 0 0 102px; font-family: var(--ui); font-size: 14px; }
+.rowfull { margin-top: 16px; }
+@media (max-width: 640px) { .rowhead { grid-template-columns: 18px 48px minmax(0, 1fr); gap: 10px; } .rowhead .cover.small { width: 48px; height: 72px; } .rowhead .ttl { font-size: 19px; } .fitb { grid-column: 2 / -1; justify-items: start; text-align: left; grid-auto-flow: column; align-items: center; gap: 10px; min-width: 0; } .fitb b { font-size: 24px; } .fitb .m { width: 72px; } .rowacts { margin-left: 0; } }
+
+.mustfail { background: var(--tint); border-radius: 16px; padding: 24px; border-left: 6px solid var(--amber); }
+.mustfail input[type=text] { max-width: 520px; }
+.aside { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 12px 0; border-top: 1px solid var(--line); font-size: 17px; }
+@media (max-width: 600px) { .aside { grid-template-columns: 1fr; gap: 8px; } .mustfail { padding: 18px; } }
+
+.nowbook { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 24px; align-items: center; margin-top: 14px; }
+.nowbook .ttl { font-family: var(--reading); font-size: 26px; font-weight: 600; line-height: 1.2; }
+.nowbook .by { font-family: var(--ui); font-size: 16px; color: var(--ink-2); margin-top: 4px; }
+.prog { height: 8px; border-radius: 999px; background: var(--tint); overflow: hidden; margin-top: 12px; max-width: 420px; }
+.prog > div { height: 100%; background: var(--amber); border-radius: 999px; }
+.uprow { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 12px; margin-top: 12px; max-width: 760px; }
+.uprow a { display: grid; gap: 4px; color: var(--ink-2); text-decoration: none; }
+.uprow a:hover .cover { transform: translateY(-2px); }
+.uprow .cover { transition: transform .2s var(--ease); font-size: 11px; padding: 4px; }
+.uprow .fit { font-family: var(--ui); font-size: 13px; font-weight: 700; }
+@media (max-width: 640px) { .nowbook { grid-template-columns: 84px minmax(0, 1fr); gap: 16px; } .nowbook .ttl { font-size: 21px; } .uprow { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media print { .rowfull[hidden] { display: block !important; } .rowhead { cursor: default; } }
+
+.opt .kbd:empty { visibility: hidden; }
+div.lbl { font-family: var(--ui); font-size: 14px; font-weight: 600; color: var(--ink-2); margin: 16px 0 6px; }
+.listdiv { margin: 28px 0 4px; padding-top: 18px; border-top: 2px solid var(--line-2); }
+.rowhead.static { cursor: default; }

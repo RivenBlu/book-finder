@@ -100,9 +100,11 @@ export async function verdictFor(bookId, { onEvent, sessionId = null } = {}) {
   const ctx = fullContext(null);
   const last = sessionId ? DB.getSession(sessionId) : DB.listSessions(5).find((s) => !['onboarding', 'gift'].includes(s.mode) && s.status !== 'closed');
   const recentCheckin = last && (sessionId || Date.now() - Date.parse(last.started_at) < 7 * 864e5)
-    ? { date: last.started_at.slice(0, 10), answers: answersDigest(last.id).filter((a) => a.layer !== 'onboarding'), must_haves: last.brief?.must_haves || [], hard_excludes: last.brief?.hard_excludes || [], constraints: last.brief?.constraints || null }
+    ? { date: last.started_at.slice(0, 10), answers: answersDigest(last.id).filter((a) => a.layer !== 'onboarding'), must_haves: last.brief?.must_haves || [], must_examples: last.brief?.must_examples || [], glance_questions: last.brief?.glance_questions || [], adjustments_after_seeing_the_list: (last.brief?.nudges || []).map((n) => n.text), hard_excludes: last.brief?.hard_excludes || [], constraints: last.brief?.constraints || null }
     : null;
-  const prompt = `READER (JSON):\n${JSON.stringify({ ...ctx, recent_moods: DB.moodLog(6), most_recent_checkin: recentCheckin }, null, 1)}\n\nBOOK (JSON):\n${JSON.stringify(bookMaterial(book, { reviews: 24 }), null, 1)}\n\nShould this reader read this book?`;
+  // Questions she pinned in Settings are answered on every book, whatever the search.
+  const pinned = String(DB.getSetting('pinned_questions', '') || '').split(/[,;\n]/).map((x) => x.trim()).filter(Boolean).slice(0, 4);
+  const prompt = `READER (JSON):\n${JSON.stringify({ ...ctx, recent_moods: DB.moodLog(6), most_recent_checkin: recentCheckin, pinned_questions: pinned }, null, 1)}\n\nBOOK (JSON):\n${JSON.stringify(bookMaterial(book, { reviews: 24 }), null, 1)}\n\nShould this reader read this book?`;
   const { data } = await ask({ system: VERDICT_SYSTEM, prompt, schema: VERDICT_SCHEMA, tier: DB.getSetting('tier_verdict', 'best'), effort: 'high' });
   DB.addVerdict(bookId, data);
   return data;

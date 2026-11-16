@@ -421,7 +421,7 @@ export function shelfItemFor(bookId, shelfName) {
 export function removeFromShelf(id) { db.prepare('DELETE FROM shelf_items WHERE id = ?').run(id); }
 // Books on "Reading now", with the pick that brought them when there was one (for the debrief entry on the home page).
 export function readingNow() {
-  return db.prepare(`SELECT i.book_id, i.page, i.added_at, b.title, b.author, b.cover, b.pages,
+  return db.prepare(`SELECT i.id AS item_id, i.book_id, i.page, i.added_at, b.title, b.author, b.cover, b.pages,
                             (SELECT r.id FROM recommendations r WHERE r.book_id = i.book_id AND r.slot NOT IN ('runner_up', 'exception') ORDER BY r.id DESC LIMIT 1) AS rec_id
                      FROM shelf_items i JOIN shelves s ON s.id = i.shelf_id JOIN books b ON b.id = i.book_id WHERE s.name = 'Reading now' ORDER BY i.added_at DESC`).all();
 }
@@ -537,7 +537,7 @@ export function moodLog(limit = 60) {
     const label = (id) => opts.find((o) => o.id === id)?.label || String(id);
     const key = r.q_id.replace(/_now$/, '');
     if (['demand', 'tone', 'safe'].includes(key)) e[key] = Number(ans) || null;
-    else if (Array.isArray(ans)) e[key] = ans.map(label);
+    else if (Array.isArray(ans)) e[key] = key === 'mood' ? ans.map(label).join(' + ') : ans.map(label); // several moods read as one line
     else e[key] = ans != null ? label(ans) : null;
     e[key + '_id'] = ans;
     if (r.free_text) e[key + '_text'] = r.free_text;

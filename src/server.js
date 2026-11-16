@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import * as DB from './db.js';
 import { ONBOARDING, CHECKIN } from './questions.js';
 import { nextQuestion, recordAnswer, generateAdaptive, generateAnchors, onboardingDone, undoLastAnswer } from './pipeline/interview.js';
-import { runRecommendation, subscribe, progressOf, isRunning, lookupBook, importGoodreadsBook, digestBook, lookupPolish } from './pipeline/recommend.js';
+import { runRecommendation, subscribe, progressOf, isRunning, lookupBook, importGoodreadsBook, digestBook, lookupPolish, keepBook, keptBooks, nudgeSlate, addBookToSlate } from './pipeline/recommend.js';
 import { followups, recordOutcome, sayVsDo, fingerprint, reportStats, writeReport, enrichHistory, historyJob, authorNext, debriefPlan, recordDebrief, debriefFollowup, debriefPatterns } from './pipeline/insights.js';
 import { backupDatabase, listBackups, checkHealth, health, exportAll, importAll, lanStatus, setLan, lanToken } from './ops.js';
 import { reflectProfile, importHistoryCsv } from './pipeline/reflect.js';
@@ -96,6 +96,7 @@ route('GET', '/api/state', async () => (DB.pruneEmptySessions(10), {
   autoReflect: autoReflectStatus(),
   followups: followups().length,
   reading: DB.readingNow(),
+  upNext: upNext(),
   health: { checkedAt: health.checkedAt, problems: health.problems },
   lan: lanStatus(),
 }));
@@ -118,6 +119,25 @@ route('POST', '/api/sessions/:id/recommend', async (req, p) => {
   const id = Number(p.id);
   if (!DB.getSession(id)) throw httpError(404, 'no such session');
   if (isRunning(id)) return { started: false, running: true };
+  runRecommendation(id).catch((e) => console.error('[recommend]', e));
+  return { started: true };
+});
+// While the research runs: keep a candidate on the final list whatever the ranking says (or let it go again).
+route('POST', '/api/sessions/:id/keep', async (req, p) => { const b = await body(req); return { kept: keepBook(Number(p.id), Number(b.bookId), b.keep !== false) }; });
+route('GET', '/api/sessions/:id/kept', async (req, p) => ({ kept: keptBooks(Number(p.id)) }));
+// After the list: adjust it in her words without new research; add a set-aside book anyway.
+route('POST', '/api/sessions/:id/nudge', async (req, p) => { const b = await body(req); const t = String(b.text || '').trim().slice(0, 400); if (!t) throw httpError(400, 'Say what to change.'); return await nudgeSlate(Number(p.id), t); });
+route('POST', '/api/sessions/:id/add-book', async (req, p) => { const b = await body(req); return await addBookToSlate(Number(p.id), Number(b.bookId)); });
+// Nothing had every must-have: she names a book that has it (a reference point), relaxes one, or both, and the search runs again.
+route('POST', '/api/sessions/:id/retry-musts', async (req, p) => {
+  const id = Number(p.id); const b = await body(req);
+  if (!DB.getSession(id)) throw httpError(404, 'no such session');
+  if (isRunning(id)) return { started: false, running: true };
+  const example = String(b.example || '').trim().slice(0, 300);
+  const relax = (Array.isArray(b.relax) ? b.relax : []).map((x) => String(x).slice(0, 200)).filter(Boolean).slice(0, 8);
+  if (!example && !relax.length) throw httpError(400, 'Name a book, or choose a must-have to relax.');
+  if (example) DB.addAnswer({ sessionId: id, qId: 'must_example', layer: 'checkin', question: 'A book that, for the reader, HAS everything she listed as must-haves (her reference point for what they mean)', options: null, answer: null, freeText: example });
+  if (relax.length) DB.addAnswer({ sessionId: id, qId: 'must_relax', layer: 'checkin', question: 'Must-haves the reader agreed to relax into strong wishes after nothing matched', options: null, answer: null, freeText: relax.join('; ') });
   runRecommendation(id).catch((e) => console.error('[recommend]', e));
   return { started: true };
 });
@@ -313,7 +333,7 @@ route('POST', '/api/profile/reflect', async () => await reflectProfile());
 // ---------- settings ----------
 route('GET', '/api/settings', async () => publicSettings());
 // Only these keys can be changed from the page; tokens for home-network mode and health data are managed by the server.
-const EDITABLE_SETTINGS = /^(tier_(brief|candidates|digest|rank|adaptive|reflect|chat|verdict)|model_(fast|smart|best|max)|candidates_web|chat_web|auto_reflect|adaptive_count|hardcover_token|verify_picks)$/;
+const EDITABLE_SETTINGS = /^(tier_(brief|candidates|digest|rank|adaptive|reflect|chat|verdict)|model_(fast|smart|best|max)|candidates_web|chat_web|auto_reflect|adaptive_count|hardcover_token|verify_picks|pinned_questions)$/;
 route('POST', '/api/settings', async (req) => {
   const b = await body(req);
   for (const [k, v] of Object.entries(b)) if (EDITABLE_SETTINGS.test(k) && v !== null && typeof v !== 'object') DB.setSetting(k, String(v));
@@ -331,9 +351,17 @@ function publicSettings() {
     chat_web: (s.chat_web ?? 'true') === 'true',
     auto_reflect: (s.auto_reflect ?? 'true') === 'true',
     verify_picks: (s.verify_picks ?? 'true') === 'true',
+    pinned_questions: s.pinned_questions || '',
   };
 }
 
+// The Up next shelf for the home page: covers, with the latest fit number where the book has been judged.
+function upNext() {
+  const shelf = DB.listShelves().find((s) => s.name === 'Up next'); if (!shelf) return { id: null, items: [] };
+  const items = DB.shelfItems(shelf.id).map((it) => { const v = DB.latestVerdict(it.book_id)?.verdict; return { book_id: it.book_id, title: it.title, author: it.author, cover: it.cover, fit: v?.fit ?? null, verdict: v?.verdict ?? null }; });
+  items.sort((a, b) => (b.fit ?? -1) - (a.fit ?? -1));
+  return { id: shelf.id, items };
+}
 function withShelves(b) { return { ...b, shelves: DB.shelvesForBook(b.book_id || b.id) }; }
 function httpError(status, message) { const e = new Error(message || 'error'); e.status = status; return e; }
 

@@ -82,7 +82,7 @@ async function router() {
   routeGen++;
   const [name, ...args] = (location.hash.slice(1) || 'home').split('/');
   document.querySelectorAll('nav a').forEach((a) => a.classList.toggle('active', a.dataset.nav === name || (['interview', 'book', 'session', 'debrief', 'followups'].includes(name) && a.dataset.nav === 'home') || (name === 'results' && a.dataset.nav === 'past')));
-  window.onkeydown = null; setBar(null);
+  window.onkeydown = null; setBar(null); document.title = 'Book Finder';
   app.className = ['interview', 'settings', 'check', 'followups', 'report', 'debrief'].includes(name) ? 'narrow' : '';
   app.innerHTML = '<p class="sec ui" style="padding:40px 0">Loading…</p>';
   try { await (routes[name] || home)(...args); } catch (e) { app.innerHTML = h`<div class="section"><h2>Something broke</h2><p class="sec" style="margin-top:8px">${e.message}</p><p style="margin-top:16px"><a class="btn" href="#home">Home</a></p></div>`; }
@@ -103,18 +103,19 @@ async function home() {
   app.innerHTML = h`
   ${st.health?.problems?.length ? raw(h`<div class="banner warn"><b>Data source problem.</b> ${st.health.problems.join(' ')} Recommendations may fail until it clears; see Settings.</div>`) : ''}
   ${st.followups ? raw(h`<div class="banner"><b>Last time I suggested ${st.followups} ${st.followups === 1 ? 'book' : 'books'}.</b> Thirty seconds on what happened teaches the tool more than anything else. <a class="btn sm primary" href="#followups">Tell me</a></div>`) : ''}
+  ${st.reading?.length || st.upNext?.items?.length ? raw(nowSection(st)) : ''}
   <section class="hero">
     <div class="hero-text">
       <div class="eyebrow">${first ? 'Welcome' : 'Good to see you'}</div>
       <h1>What should you read next?</h1>
-      <p class="lede">A few closed questions about how you are and what you need. Then real reviews on every candidate, and three to five books with honest reasons. Or a whole path of them.</p>
+      <p class="lede">A few closed questions about how you are and what you need. Then real reviews on every candidate, and a ranked list of books with honest reasons. Or a whole path of them.</p>
       <p class="lede-small">Mood, not genre. Reviews, not ratings. Honest about the risk.</p>
     </div>
     <div class="hero-pic">${raw(HERO)}</div>
     <div class="modes-wrap">
       <div class="modes-head"><span class="eyebrow">${first ? 'Start here' : 'A new report'}</span><span class="cap sec">${first ? 'The first interview also builds your taste profile. After that, every option below ends in a page of books with real reviews.' : 'Each one ends in a page of books, with real reviews and honest reasons.'}</span></div>
       <div class="modes">
-        <button class="mode primary" data-mode="full"><span class="t">${first ? 'Start the interview' : 'Find my next book'}</span><span class="d">${first ? 'About 17 questions about your taste, asked once, then 12 about right now. Then three to five books with real reviews.' : 'The full interview: twelve questions about right now and two or three follow-ups, then three to five books chosen for today.'}</span><span class="k">${first ? 'About twelve minutes · press 1 to 9 to answer' : 'About eight minutes · press 1 to 9 to answer'}</span></button>
+        <button class="mode primary" data-mode="full"><span class="t">${first ? 'Start the interview' : 'Find my next book'}</span><span class="d">${first ? 'About 17 questions about your taste, asked once, then 12 about right now. Then a ranked list of books with real reviews.' : 'The full interview: twelve questions about right now and two or three follow-ups, then a ranked list of books chosen for today.'}</span><span class="k">${first ? 'About twelve minutes · press 1 to 9 to answer' : 'About eight minutes · press 1 to 9 to answer'}</span></button>
         <button class="mode" data-mode="quick" ${first ? 'disabled' : ''}><span class="t">Quick picks</span><span class="d">Six questions, the same report. For when you already know the mood and want the books.</span><span class="k">${first ? 'After the first interview' : 'About two minutes'}</span></button>
         <button class="mode" data-mode="path" ${first ? 'disabled' : ''}><span class="t">A reading path</span><span class="d">Two to four books in order over a few weeks, from where you are to where you want to be. Each one moves you a step.</span><span class="k">${first ? 'After the first interview' : 'About ten questions, then the plan'}</span></button>
         <button class="mode" data-mode="gift"><span class="t">A gift for someone else</span><span class="d">Eight questions about them. Your own taste stays out of it. The picks land on your Gifts shelf.</span><span class="k">Birthday, hard time, just because</span></button>
@@ -123,7 +124,6 @@ async function home() {
     </div>
   </section>
   ${recent.length ? raw(h`<section class="section"><div class="eyebrow">Recent</div><div class="recent">${recent.map((s) => raw(h`<div class="r"><div><div class="t">${when(s.started_at)} · ${({ quick: 'quick check-in', onboarding: 'taste profile', path: 'reading path', gift: 'gift for someone else' })[s.mode] || 'full interview'} · ${s.status === 'recommended' ? 'done' : s.status === 'researching' ? 'researching' : 'unfinished'}</div>${s.summary ? raw(h`<div class="s">${s.summary.slice(0, 160)}…</div>`) : ''}</div><div class="row"><a class="btn sm" href="#${s.status === 'recommended' ? 'results' : 'interview'}/${s.id}">${s.status === 'recommended' ? 'Open the report' : 'Continue'}</a><button class="btn sm ghost" data-del="${s.id}" title="Delete">✕</button></div></div>`))}</div><p class="cap" style="margin-top:14px"><a href="#past">All past picks, and what became of each book →</a></p></section>`) : ''}
-  ${st.reading?.length ? raw(h`<section class="section"><div class="eyebrow">Reading now</div><div class="recent">${st.reading.map((b) => raw(h`<div class="r"><div class="fuhead small"><a href="#book/${b.book_id}">${coverImg(b.cover, b.title, 'cover small')}</a><div><div class="t" style="font-family:var(--reading);font-size:18px;color:var(--ink)">${b.title}</div><div class="cap sec">${b.author || ''}${b.page ? ` · on page ${b.page}${b.pages ? ' of ' + b.pages : ''}` : ''}</div></div></div><div class="row"><a class="btn sm" href="#debrief/${b.book_id}/${b.rec_id || 0}/finished">Finished it</a><a class="btn sm ghost" href="#debrief/${b.book_id}/${b.rec_id || 0}/dropped">Dropped it</a></div></div>`))}</div><p class="cap sec" style="margin-top:14px">Finished one, or gave up? Two minutes while it is fresh teaches the tool more than anything else.</p></section>`) : ''}
   <section class="section">
     <div class="eyebrow">Thinking about a specific book?</div>
     <form class="row" id="checkForm" style="margin-top:12px"><input type="text" id="checkQ" placeholder="Title and author" style="flex:1;min-width:220px" autocomplete="off"><button class="btn primary">Should I read it?</button></form>
@@ -135,15 +135,33 @@ async function home() {
     <div><div class="eyebrow">Reader DNA</div><p class="sec" style="margin-top:12px;font-size:17px">${st.readerDna ? st.readerDna.slice(0, 200) + '…' : 'Not built yet. After the taste questions, import your Goodreads or StoryGraph history and rebuild it on the Reader DNA page.'}</p><p style="margin-top:12px"><a href="#profile" class="btn sm">Open</a></p></div>
   </section>`;
   app.querySelectorAll('.mode').forEach((m) => m.onclick = act(m, async () => { const s = await post('/api/sessions', { mode: m.dataset.mode }); location.hash = `interview/${s.id}`; }));
+  const ns = document.getElementById('nowSave'); if (ns) ns.onclick = act(ns, async () => { await patch(`/api/shelf-items/${ns.dataset.item}`, { page: Number(document.getElementById('nowPage').value) || 0 }); toast('Saved'); home(); });
   const redo = document.getElementById('redoTaste'); if (redo) redo.onclick = (e) => { e.preventDefault(); act(redo, async () => { const s = await post('/api/sessions', { mode: 'onboarding' }); location.hash = `interview/${s.id}`; })(); };
   document.getElementById('checkForm').onsubmit = (e) => { e.preventDefault(); const q = document.getElementById('checkQ').value.trim(); if (q) location.hash = `check/${encodeURIComponent(q)}`; };
   app.querySelectorAll('[data-del]').forEach((b) => b.onclick = act(b, async () => { await del(`/api/sessions/${b.dataset.del}`); router(); }));
 }
 
+// The top of the home page once there are books: the one in hand, then the shelf that is waiting, best fit first.
+function nowSection(st) {
+  const b = (st.reading || [])[0]; const up = st.upNext?.items || [];
+  return h`<section class="section nowsec" style="padding-top:8px">
+    ${b ? raw(h`<div class="eyebrow">Reading now</div><div class="nowbook"><a href="#book/${b.book_id}">${coverImg(b.cover, b.title)}</a><div>
+      <div class="ttl"><a href="#book/${b.book_id}" style="color:inherit">${b.title}</a></div><div class="by">${b.author || ''}${b.page ? ` · page ${b.page}${b.pages ? ' of ' + b.pages : ''}` : ''}</div>
+      ${b.pages && b.page ? raw(h`<div class="prog"><div style="width:${Math.min(100, Math.round((b.page / b.pages) * 100))}%"></div></div>`) : ''}
+      <div class="row" style="margin-top:12px"><label class="cap sec" for="nowPage">I am on page</label><input type="number" id="nowPage" min="0" value="${b.page || ''}" placeholder="${b.pages ? 'of ' + b.pages : ''}" style="width:110px"><button class="btn sm" id="nowSave" data-item="${b.item_id}">Save</button></div>
+      <div class="row" style="margin-top:12px"><a class="btn sm primary" href="#debrief/${b.book_id}/${b.rec_id || 0}/finished">Finished it</a><a class="btn sm" href="#debrief/${b.book_id}/${b.rec_id || 0}/dropped">Dropped it</a><a class="btn sm ghost" href="#book/${b.book_id}">Is it worth continuing?</a></div>
+      ${st.reading.length > 1 ? raw(h`<p class="cap sec" style="margin-top:10px">Also reading: ${st.reading.slice(1).map((x, k) => raw(h`${k ? ', ' : ''}<a href="#book/${x.book_id}">${x.title}</a>`))}</p>`) : ''}
+    </div></div>`) : ''}
+    ${up.length ? raw(h`<div class="eyebrow" style="margin-top:${b ? 28 : 0}px">Up next · <span class="tabular">${up.length}</span> ${up.length === 1 ? 'book' : 'books'}${up.some((x) => x.fit != null) ? ' · best fit first' : ''}</div>
+      <div class="uprow">${up.slice(0, 8).map((x) => raw(h`<a href="#book/${x.book_id}" title="${x.title}">${coverImg(x.cover, x.title)}<span class="fit tabular">${x.fit != null ? x.fit + '%' : ' '}</span></a>`))}</div>
+      <p class="cap" style="margin-top:10px"><a href="#shelves/${st.upNext.id}">${up.length > 1 ? 'Which of these tonight? →' : 'Open the shelf →'}</a>${up.length > 8 ? ` · and ${up.length - 8} more` : ''}</p>`) : ''}
+  </section>`;
+}
+
 // ---------- interview ----------
 const REACT = {
-  mood_now: { good_energetic: 'Good. Let us use that.', good_calm: 'Calm is the best reading state there is.', flat: 'Flat is honest. We can work with flat.', stressed: 'Noted. Nothing that feels like homework.', low: 'Okay. No forced cheer.', raw: 'Thank you for saying so. Gently, then.', restless: 'Short chapters, then.' },
-  need_now: { distract: 'Grip first, everything else second.', comfort: 'Warm and safe. Got it.', sit_with_it: 'No flinching, no fixing.', thrill: 'Dread and twists, coming up.', think: 'Ideas with teeth.', laugh: 'Funny is the hardest brief. Noted.', awe: 'Scale and strangeness.', learn: 'Something true, well told.', feel: 'Tissues on standby.' },
+  mood_now: { good_energetic: 'Good. Let us use that.', curious: 'Curious is the best state to choose in.', good_calm: 'Calm is a fine reading state. I will not disturb it.', tired: 'Tired, noted. The book does the carrying.', bored: 'Bored wants something to happen. Noted.', numb: 'Flat is honest. We can work with flat.', flat: 'Flat is honest. We can work with flat.', stressed: 'Noted. Nothing that feels like homework.', anxious: 'Noted. Nothing that winds you tighter.', irritable: 'Fair. Nothing that tests your patience.', low: 'Okay. No forced cheer.', lonely: 'Good company on the page, then.', raw: 'Thank you for saying so. Gently, then.', restless: 'Short chapters, then.' },
+  need_now: { distract: 'Grip first, everything else second.', comfort: 'Warm and safe. Got it.', sit_with_it: 'No flinching, no fixing.', thrill: 'Dread and twists, coming up.', think: 'Ideas with teeth.', laugh: 'Funny is the hardest brief. Noted.', indulge: 'A guilty pleasure, chosen with care.', awe: 'Scale and strangeness.', learn: 'Something true, well told.', feel: 'Tissues on standby.' },
   demand_now: { 1: 'Easy. The book carries you.', 2: 'Light on effort.', 3: 'Medium effort.', 4: 'Up for some work.', 5: 'Demanding. You want to work.' },
   time_now: { one_sitting: 'Short and immersive.', this_week: 'A week or two. Good range.', slow_month: 'A companion book.', commute: 'Fragment-friendly, then.', audio: 'The narrator will matter.' },
   familiar_now: { familiar: 'More of what works.', adjacent: 'Same feeling, new ground.', strange: 'A wildcard slot, then.' },
@@ -420,13 +438,13 @@ async function renderQuestion(id, nx, mode, reaction) {
   const prevText = q.previous?.text || '';
   app.innerHTML = h`
   <div class="interview"><div class="q">
-    <div class="meta"><span class="eyebrow">${phase} · <span class="tabular">${nx.index + 1} of ${total}</span></span><span class="react">${reaction}</span></div>
+    <div class="meta"><span class="eyebrow">${q.must ? 'What you mean by it' : phase} · <span class="tabular">${nx.index + 1} of ${total}</span></span><span class="react">${reaction}</span></div>
     <div class="text">${q.text}</div>
     ${q.help ? raw(h`<p class="help">${q.help}</p>`) : ''}
     ${q.previous ? raw(h`<div class="prev">Last time: <b>${(q.previous.labels || []).join(', ')}${q.previous.text ? (q.previous.labels?.length ? ' · ' : '') + q.previous.text : ''}</b>. Press Enter to keep it, or change it.</div>`) : ''}
-    ${isText ? raw(h`<textarea id="free" placeholder="${q.placeholder || ''}">${prevText}</textarea>`) : raw(h`
+    ${isText ? raw(h`<textarea id="free" placeholder="${q.placeholder || ''}">${prevText}</textarea>${q.suggestions?.length ? raw(h`<div class="sugg"><span class="cap sec">You asked for this before. Tap to use it again:</span>${q.suggestions.map((x) => raw(h`<button type="button" class="chip" data-sug="${x.text}">${x.text.slice(0, 90)}</button>`))}</div>`) : ''}`) : raw(h`
       <div class="opts ${isScale ? 'scale' : ''}">
-        ${q.options.map((o, i) => raw(h`<button class="opt ${sel.includes(o.id) ? 'on' : ''} ${q.pair ? 'pair' : ''}" data-id="${o.id}"><span class="kbd">${isScale ? o.id : i + 1}</span><span${isScale && !o.label ? raw(h` aria-label="${o.id} of 5"`) : ''}><span class="l">${q.pair ? o.hint : o.label || (isScale ? '' : o.id)}</span>${!q.pair && o.hint ? raw(h`<span class="h">${o.hint}</span>`) : ''}${q.pair ? raw(h`<span class="h">${o.label}</span>`) : ''}</span><span class="ck">✓</span></button>`))}
+        ${q.options.map((o, i) => raw(h`${o.group && o.group !== q.options[i - 1]?.group ? raw(h`<div class="optgroup">${o.group}</div>`) : ''}<button class="opt ${sel.includes(o.id) ? 'on' : ''} ${q.pair ? 'pair' : ''}" data-id="${o.id}"><span class="kbd">${isScale ? o.id : i < 9 ? i + 1 : ''}</span><span${isScale && !o.label ? raw(h` aria-label="${o.id} of 5"`) : ''}><span class="l">${q.pair ? o.hint : o.label || (isScale ? '' : o.id)}</span>${!q.pair && o.hint ? raw(h`<span class="h">${o.hint}</span>`) : ''}${q.pair ? raw(h`<span class="h">${o.label}</span>`) : ''}</span><span class="ck">✓</span></button>`))}
       </div>
       ${isScale ? raw(h`<div class="scale-ends"><span>${q.left || ''}</span><span>${q.right || ''}</span></div>`) : ''}
       <div class="other"><button class="btn sm ghost" id="otherBtn">✎ Other / my own words</button><textarea id="free" hidden placeholder="Say it your way. Free text is read as the strongest signal.">${prevText}</textarea></div>`)}
@@ -434,13 +452,14 @@ async function renderQuestion(id, nx, mode, reaction) {
       <button class="btn primary" id="next">Continue <span class="kbd" style="background:transparent;color:inherit;border-color:currentColor;opacity:.7">↵</span></button>
       ${nx.index > 0 ? raw(h`<button class="btn ghost" id="back">← Back</button>`) : ''}
       ${q.required ? '' : raw(h`<button class="btn ghost" id="skip">Skip</button>`)}
-      <span class="hint">${isMulti ? 'Pick any that apply, then Continue.' : isText ? 'Ctrl+Enter to continue.' : isScale ? 'Press 1 to 5.' : 'Press a number, or click.'}</span>
+      <span class="hint">${isMulti ? (q.max ? `Pick up to ${q.max}, then Continue.` : 'Pick any that apply, then Continue.') : isText ? 'Ctrl+Enter to continue.' : isScale ? 'Press 1 to 5.' : 'Press a number, or click.'}</span>
     </div>
   </div></div>`;
   const free = document.getElementById('free');
   const otherBtn = document.getElementById('otherBtn');
   if (otherBtn) otherBtn.onclick = () => { free.hidden = !free.hidden; if (!free.hidden) free.focus(); };
   if (prevText && free && otherBtn) free.hidden = false;
+  app.querySelectorAll('[data-sug]').forEach((b) => b.onclick = () => { const t = b.dataset.sug; if (!free.value.includes(t)) free.value = free.value.trim() ? `${free.value.trim()}; ${t}` : t; b.classList.add('lamp'); free.focus(); });
   let leaving = false;
   const leave = async (fn) => {
     if (leaving) return; leaving = true;
@@ -459,6 +478,7 @@ async function renderQuestion(id, nx, mode, reaction) {
   };
   app.querySelectorAll('.opt').forEach((b) => b.onclick = () => {
     const v = b.dataset.id;
+    if (isMulti && q.max && !sel.includes(v) && sel.length >= q.max) return toast(`Up to ${q.max}. Unpick one first.`);
     if (isMulti) { sel = sel.includes(v) ? sel.filter((x) => x !== v) : [...sel, v]; b.classList.toggle('on'); }
     else { sel = [v]; app.querySelectorAll('.opt').forEach((x) => x.classList.toggle('on', x.dataset.id === v)); if (free.hidden) setTimeout(() => submit(), 400); }
   });
@@ -498,7 +518,7 @@ async function renderSummary(id) {
     return { q: a.question, a: [labels.join(', '), a.free_text].filter(Boolean).join(' · ') };
   });
   app.innerHTML = h`<div class="interview"><div class="q"><div class="eyebrow">That is everything</div><div class="text">Here is what I heard. Ready when you are.</div>
-    <p class="help">${s.mode === 'path' ? 'Next I design the arc, think of candidates for every stage, read real reviews on each, and put the books in order with checkpoints and swaps. About six minutes; you can leave the page.' : s.mode === 'gift' ? 'Next I write a brief about them, think of candidates, read real reviews, and choose three to five safe-to-give books. About five minutes.' : 'Next I write a brief, think of 12 to 22 candidates, read real reviews on each, choose up to five, and then ask "Should I read this?" about each one so nothing doubtful gets through. About ten minutes; you can leave the page.'}</p>
+    <p class="help">${s.mode === 'path' ? 'Next I design the arc, think of candidates for every stage, read real reviews on each, and put the books in order with checkpoints and swaps. About six minutes; you can leave the page.' : s.mode === 'gift' ? 'Next I write a brief about them, think of candidates, read real reviews, and choose three to five safe-to-give books. About five minutes.' : 'Next I write a brief, think of 12 to 22 candidates, read real reviews on each, rank the ones worth your time, and then ask "Should I read this?" about each one so nothing doubtful gets through. About ten minutes; you can leave the page.'}</p>
     <div class="summary">${rows.map((r) => raw(h`<div class="s"><span class="k">${r.q.replace(/\?$/, '')}</span><span>${r.a}</span></div>`))}</div>
     <div class="qactions"><button class="btn primary big" id="go">${s.mode === 'path' ? 'Build my path' : s.mode === 'gift' ? 'Find the gift' : 'Find my books'}</button><button class="btn ghost" id="back">← Change an answer</button></div></div></div>`;
   const goBtn = document.getElementById('go'), backBtn = document.getElementById('back');
@@ -507,63 +527,157 @@ async function renderSummary(id) {
   window.onkeydown = (e) => { if (e.key === 'Enter' && document.getElementById('go') === goBtn) { e.preventDefault(); goBtn.click(); } };
 }
 
-// ---------- the five-minute job ----------
-const STEPS = [['brief', 'Reading your answers', 35], ['candidates', 'Thinking of candidates', 100], ['enrich', 'Fetching real descriptions, ratings and reviews', 25], ['digest', 'Reading the reviews, book by book', 75], ['rank', 'Choosing the slate', 95], ['verify', 'A second, stricter look at every pick', 70]];
-const WAIT_LINES = ['Librarians call this a readers\' advisory interview. It usually takes a desk and a cup of tea.', 'Ratings cluster between 3.8 and 4.2, so the reviews matter more than the stars.', 'Nearly half of abandoned books are dropped for a slow start. The opening pages get checked.', 'One slot is always a wildcard. You can say no to it.', 'Everything you reject teaches the next session.'];
+// ---------- the research job ----------
+const STEPS = [['brief', 'Reading your answers', 60], ['candidates', 'Thinking of candidates', 170], ['enrich', 'Fetching real descriptions, ratings and reviews', 60], ['digest', 'Reading the reviews, book by book', 90], ['rank', 'Choosing and ordering the list', 80], ['verify', 'A second, stricter look at every book', 110], ['rescue', 'Searching once more for your must-haves', 240]];
+const WAIT_LINES = ['Librarians call this a readers\' advisory interview. It usually takes a desk and a cup of tea.', 'Ratings cluster between 3.8 and 4.2, so the reviews matter more than the stars.', 'Nearly half of abandoned books are dropped for a slow start. The opening pages get checked.', 'A must-have is a rule. A book that misses one is never slipped onto the list.', 'Everything you reject teaches the next session.'];
 function renderProgress(id) {
-  const log = []; const t0 = Date.now(); const total = STEPS.reduce((a, s) => a + s[2], 0);
+  const log = []; const t0 = Date.now();
   let stepStart = t0; let lineIdx = 0; let timer; let es = null;
+  const kept = new Set();
   // The progress screen belongs to the page it was opened on; once the reader navigates away it stops drawing.
   const gen = routeGen;
   const alive = () => { if (gen === routeGen) return true; clearInterval(timer); es?.close(); return false; };
-  const draw = () => {
+  app.innerHTML = h`<div class="job"><div id="jobTop"></div><div id="jobFoot"></div><div id="jobCards"></div></div>`;
+  const top = document.getElementById('jobTop'), cardsEl = document.getElementById('jobCards'), foot = document.getElementById('jobFoot');
+  const current = () => { const last = log.length ? log[log.length - 1].step : 'brief'; return ['done', 'error'].includes(last) ? last : log.some((l) => l.step === 'rescue') ? 'rescue' : last; };
+  const drawTop = () => {
     if (!alive()) return;
-    const current = log.length ? log[log.length - 1].step : 'brief';
-    const ci = Math.max(0, STEPS.findIndex((s) => s[0] === current));
-    const done = current === 'done';
-    const before = STEPS.slice(0, ci).reduce((a, s) => a + s[2], 0);
-    const inStep = Math.min(1, (Date.now() - stepStart) / 1000 / STEPS[ci][2]);
-    const pct = done ? 100 : Math.min(97, Math.round(((before + inStep * STEPS[ci][2] * 0.95) / total) * 100));
-    const leftSec = done ? 0 : Math.max(20, total - before - inStep * STEPS[ci][2]);
+    const cur = current(); const done = cur === 'done';
+    const steps = STEPS.filter((x) => x[0] !== 'rescue' || log.some((l) => l.step === 'rescue'));
+    const total = steps.reduce((a, x) => a + x[2], 0);
+    const ci = Math.max(0, steps.findIndex((x) => x[0] === cur));
+    const before = steps.slice(0, ci).reduce((a, x) => a + x[2], 0);
+    const inStep = Math.min(1, (Date.now() - stepStart) / 1000 / steps[ci][2]);
+    const pct = done ? 100 : Math.min(97, Math.round(((before + inStep * steps[ci][2] * 0.95) / total) * 100));
+    const leftSec = done ? 0 : Math.max(20, total - before - inStep * steps[ci][2]);
     const err = log.find((l) => l.step === 'error');
     const brief = log.find((l) => l.brief)?.brief;
-    const cands = log.find((l) => l.candidates)?.candidates;
-    app.innerHTML = h`<div class="job">
+    top.innerHTML = h`
       ${!done && !err ? raw(h`<div class="flipwrap">${raw(FLIP)}</div>`) : ''}
       <div class="eyebrow">Working on it</div>
-      <h2 style="margin-top:8px">${done ? 'Done. Opening your books.' : err ? 'Something went wrong' : STEPS[ci][1] + '…'}</h2>
+      <h2 style="margin-top:8px">${done ? 'Done. Opening your books.' : err ? 'Something went wrong' : steps[ci][1] + '…'}</h2>
       <div class="bar"><div style="width:${pct}%"></div></div>
       <div class="pct"><span class="tabular">${pct}%</span><span>${done ? '' : err ? '' : leftSec > 90 ? `About ${Math.ceil(leftSec / 60)} minutes left` : 'Under two minutes left'}</span></div>
       ${err ? raw(h`<p style="color:var(--danger);margin-top:16px">${err.msg}</p><p style="margin-top:12px"><button class="btn primary" id="retry">Try again</button></p>`) : ''}
-      <ul class="steps">${STEPS.map(([k, label], i) => {
+      <ul class="steps">${steps.map(([k, label], i) => {
         const msgs = log.filter((l) => l.step === k);
         const state = done || i < ci ? 'done' : i === ci ? 'active' : 'todo';
         const sub = msgs.length ? msgs[msgs.length - 1].msg : '';
-        return raw(h`<li class="${state}"><span class="ico">${state === 'done' ? '✓' : state === 'active' ? raw('<span class="spinner"></span>') : ''}</span><span>${label}${sub && state !== 'todo' ? raw(h`<span class="sub">${sub}${(k === 'enrich' || k === 'digest') && msgs.length > 1 ? ` (${msgs.length - 1} so far)` : ''}</span>`) : ''}</span></li>`);
+        return raw(h`<li class="${state}"><span class="ico">${state === 'done' ? '✓' : state === 'active' ? raw('<span class="spinner"></span>') : ''}</span><span>${label}${sub && state !== 'todo' ? raw(h`<span class="sub">${sub}</span>`) : ''}</span></li>`);
       })}</ul>
-      ${brief ? raw(h`<div class="section" style="margin-top:24px"><div class="eyebrow">How I read you</div><p class="readernow" style="margin-top:12px">${brief.reader_now}</p></div>`) : ''}
-      ${cands ? raw(h`<details><summary>Long list (${cands.length})</summary><p class="cap sec">${cands.join(' · ')}</p></details>`) : ''}
-      ${!done && !err ? raw(h`<p class="wait">${WAIT_LINES[lineIdx % WAIT_LINES.length]}</p>`) : ''}
-    </div>`;
+      ${brief ? raw(h`<details style="margin-top:20px"><summary>How I read you today</summary><p class="readernow" style="font-size:18px">${brief.reader_now}</p>${brief.must_haves?.length ? raw(h`<p class="cap" style="margin-top:8px"><b>Your must-haves, as I will apply them:</b> ${brief.must_haves.join(' · ')}</p>`) : ''}</details>`) : ''}
+      ${!done && !err ? raw(h`<p class="wait">${WAIT_LINES[lineIdx % WAIT_LINES.length]}</p>`) : ''}`;
+    if (!err) document.title = done ? 'Your books are ready · Book Finder' : `${pct}% · Book Finder`;
     const retry = document.getElementById('retry'); if (retry) retry.onclick = act(retry, async () => { await post(`/api/sessions/${id}/recommend`); renderProgress(id); });
   };
-  draw();
+  // One card per candidate, drawn only when something about the books changes (so covers do not flicker).
+  const drawCards = () => {
+    if (!alive()) return;
+    const cards = new Map();
+    for (const ev of log) {
+      if (ev.book) { const c = cards.get(ev.book.id) || {}; cards.set(ev.book.id, { ...c, ...ev.book, read: c.read || ev.step === 'digest' }); }
+      if (ev.drop && cards.has(ev.drop.id)) cards.get(ev.drop.id).drop = ev.drop.reason;
+      if (ev.verdict && cards.has(ev.verdict.id)) cards.get(ev.verdict.id).verdict = ev.verdict;
+    }
+    const list = [...cards.values()];
+    if (!list.length) { cardsEl.innerHTML = ''; return; }
+    const status = (c) => (c.verdict ? `Second look: ${verdictLabel(c.verdict.verdict)}, ${c.verdict.fit}%${c.verdict.missing?.length ? ' · misses a must-have' : ''}` : c.drop ? `Set aside: ${c.drop}` : c.read ? 'Reviews read' : 'Found. Its reviews are next.');
+    cardsEl.innerHTML = h`<div class="section" style="margin-top:8px"><div class="eyebrow">Books I am looking at · <span class="tabular">${list.length}</span></div>
+      <p class="cap sec" style="margin-top:6px;max-width:66ch">Each book appears as I find it, with what it is. If one catches your eye, or I set one aside and you disagree, press "Keep it in": it will be on your list whatever I decide, with an honest verdict beside it. "Look closer" opens its page in a new tab.</p>
+      <div class="cands">${list.map((c) => raw(h`<div class="cand ${(c.drop || ['no', 'probably_not'].includes(c.verdict?.verdict)) && !kept.has(c.id) ? 'out' : ''}">${coverImg(c.cover, c.title, 'cover small')}<div>
+        <div class="ttl">${c.title}</div><div class="by">${c.author || ''}${c.pages ? ` · ${c.pages} pages` : ''}${c.rating ? ` · ★ ${Number(c.rating).toFixed(1)}` : ''}</div>
+        ${c.line ? raw(h`<p class="line">${c.line}</p>`) : ''}
+        <div class="st">${status(c)}${kept.has(c.id) ? ' · kept by you' : ''}</div>
+        <div class="row" style="gap:6px;margin-top:8px"><button class="btn sm ${kept.has(c.id) ? 'on' : ''}" data-keep="${c.id}">${kept.has(c.id) ? '✓ Kept in' : 'Keep it in'}</button><a class="btn sm ghost" href="#book/${c.id}" target="_blank" rel="noopener">Look closer ↗</a></div>
+      </div></div>`))}</div></div>`;
+  };
+  cardsEl.onclick = async (e) => {
+    const b = e.target.closest('[data-keep]'); if (!b) return;
+    const bookId = Number(b.dataset.keep); const on = !kept.has(bookId);
+    if (on) kept.add(bookId); else kept.delete(bookId);
+    drawCards();
+    try { await post(`/api/sessions/${id}/keep`, { bookId, keep: on }); toast(on ? 'It will be on your list.' : 'Left to my judgement again.'); } catch (er) { toast(er.message); }
+  };
+  fetch(`/api/sessions/${id}/kept`).then((r) => r.json()).then((j) => { for (const k of j.kept || []) kept.add(k); drawCards(); }).catch(() => {});
+  // Something to do meanwhile, and a way to be called back.
+  const canNotify = 'Notification' in window;
+  foot.innerHTML = h`<div class="meanwhile"><span class="cap sec">This takes about ten minutes and keeps going if you leave the page.</span>${canNotify ? raw(h`<button class="btn sm" id="notifyBtn">${Notification.permission === 'granted' ? '✓ I will tell you when it is ready' : 'Tell me when it is ready'}</button>`) : ''}<span id="meanLinks"></span></div>`;
+  const nb = document.getElementById('notifyBtn');
+  if (nb) nb.onclick = async () => { const p = await Notification.requestPermission(); nb.textContent = p === 'granted' ? '✓ I will tell you when it is ready' : 'Notifications are blocked in this browser'; };
+  fetch('/api/state').then((r) => r.json()).then((st) => {
+    const el = document.getElementById('meanLinks'); if (!el || gen !== routeGen) return;
+    const rd = (st.reading || [])[0];
+    el.innerHTML = h`${rd ? raw(h`<a class="btn sm ghost" href="#book/${rd.book_id}" target="_blank" rel="noopener">Meanwhile: how is ${rd.title} going? ↗</a>`) : ''}${st.followups ? raw(h`<a class="btn sm ghost" href="#followups" target="_blank" rel="noopener">Meanwhile: tell me about ${st.followups} earlier ${st.followups === 1 ? 'pick' : 'picks'} ↗</a>`) : ''}`;
+  }).catch(() => {});
+  drawTop();
   clearInterval(renderProgress.timer);
-  timer = renderProgress.timer = setInterval(() => { if ((Date.now() - t0) % 12000 < 1000) lineIdx++; draw(); }, 1000);
+  timer = renderProgress.timer = setInterval(() => { if ((Date.now() - t0) % 12000 < 1000) lineIdx++; drawTop(); }, 1000);
   es = new EventSource(`/api/sessions/${id}/events`);
   es.onmessage = (e) => {
     if (!alive()) return;
     const ev = JSON.parse(e.data);
     if (ev.step === 'idle') { es.close(); clearInterval(timer); return get(`/api/sessions/${id}`).then((s) => (s.status === 'recommended' ? (location.hash = `results/${id}`) : interview(id))); }
-    const prevStep = log.length ? log[log.length - 1].step : null;
-    log.push(ev); if (ev.step !== prevStep) stepStart = Date.now(); draw();
-    if (ev.step === 'done') { es.close(); clearInterval(timer); setTimeout(() => { if (gen === routeGen) location.hash = `results/${id}`; }, 600); }
+    const prevStep = current();
+    log.push(ev); if (current() !== prevStep) stepStart = Date.now(); drawTop();
+    if (ev.book || ev.drop || ev.verdict) drawCards();
+    if (ev.step === 'done') {
+      es.close(); clearInterval(timer);
+      if (document.hidden && canNotify && Notification.permission === 'granted') { try { new Notification('Book Finder', { body: 'Your books are ready.' }); } catch {} }
+      setTimeout(() => { if (gen === routeGen) location.hash = `results/${id}`; }, 600);
+    }
     if (ev.step === 'error') { es.close(); clearInterval(timer); }
   };
   es.onerror = () => { es.close(); setTimeout(() => { if (!alive()) return; get(`/api/sessions/${id}`).then((s) => (s.status === 'recommended' ? (location.hash = `results/${id}`) : s.running ? renderProgress(id) : null)); }, 2000); };
 }
 
 // ---------- results ----------
+// The fit of one book: for today (the judge's number), and in general (lasting taste) when the judge gave both.
+function fitBlock(f) {
+  const c = f.check;
+  const n = c?.fit ?? (f.confidence != null && f.confidence > 0 ? Math.round(f.confidence * 100) : null);
+  if (n == null) return '';
+  return raw(h`<div class="fitb"><b class="tabular">${n}%</b><div class="m"><i style="width:${Math.max(4, Math.min(100, n))}%"></i></div><span>${c ? `${verdictLabel(c.verdict)} · ${f.nudged ? 'judged before your change' : 'for today'}` : 'my estimate'}</span>${c?.fit_general != null ? raw(h`<span><span class="tabular">${c.fit_general}%</span> in general</span>`) : ''}</div>`);
+}
+// The labels on a book: romance and series always, then whatever this search made relevant. Older picks fall back to the digest.
+function strip(g, d) {
+  let items = Array.isArray(g) && g.length ? g : null;
+  if (!items && d?.romance) {
+    const ro = d.romance;
+    items = [{ label: 'Romance', value: ro.role === 'none' ? 'none' : [{ hint: 'a hint', subplot: 'a subplot', central: 'at the centre' }[ro.role] || ro.role, (ro.tropes || [])[0], ro.heat && !['none', 'unknown'].includes(ro.heat) ? HEAT[ro.heat] || ro.heat : ''].filter(Boolean).join(', ') }, d.series ? { label: 'Series', value: String(d.series).split(/[;(]|\. |, (?=readers|reviewers|sequels)/)[0].trim().slice(0, 70) } : null].filter(Boolean);
+  }
+  if (!items) return '';
+  return raw(h`<div class="strip">${items.map((x) => raw(h`<span class="chip ${/unclear|unknown/i.test(x.value) ? '' : 'lamp'}">${x.label} <b>${x.value}</b></span>`))}</div>`);
+}
+const NUDGES = ['More romance', 'Less romance', 'Lighter', 'Darker', 'Funnier', 'Faster start', 'Better written', 'Cleverer', 'Pure fun', 'Shorter', 'Standalone only', 'Less young-adult', 'Stranger', 'Safer choices'];
+function pickRow(r, i, shelves, sessionId, giftFor) {
+  const f = r.fit;
+  return raw(h`<div class="rowpick">
+    <div class="rowhead" data-toggle="${r.id}" role="button" tabindex="0" aria-expanded="false">
+      <span class="rn tabular">${i + 1}</span>
+      ${coverImg(r.cover, r.title, 'cover small')}
+      <div class="rmain"><div class="ttl">${r.title}</div><div class="by">${r.author}${r.pages ? ` · ${r.pages} pages` : ''}${f.slot ? raw(h` · <b>${f.slot.replace(/_/g, ' ')}</b>`) : ''}</div>
+        <div class="hl2">${f.headline || ''}</div>${strip(f.check?.glance, r.review_digest)}
+        ${f.check?.missing?.length ? raw(h`<div class="cap" style="color:var(--danger);margin-top:6px">Misses a must-have: ${f.check.missing.join('; ')}</div>`) : ''}</div>
+      ${fitBlock(f)}
+    </div>
+    <div class="rowacts noprint"><button class="linkbtn" data-toggle="${r.id}" data-label>Read the full case</button>${giftFor ? '' : raw(h`<button class="linkbtn" data-shelf="Up next" data-rec="${r.id}">Save to Up next</button><button class="linkbtn" data-nudge="more like ${r.title}">More like this</button><button class="linkbtn" data-nudge="less like ${r.title}">Less like this</button>`)}<span class="saved" data-saved="${r.id}">${r.feedback ? labelFeedback(r.feedback) : ''}</span></div>
+    <div class="rowfull" id="full-${r.id}" hidden>${pickCard(r, shelves, sessionId, giftFor)}</div>
+  </div>`);
+}
+// A borderline book in the same row format: the judge's one-line answer instead of a full case (that lives on its book page).
+function maybeRow(r, i) {
+  const c = r.fit.check;
+  return raw(h`<div class="rowpick">
+    <div class="rowhead static">
+      <span class="rn tabular">${i + 1}</span>
+      <a href="#book/${r.book_id}">${coverImg(r.cover, r.title, 'cover small')}</a>
+      <div class="rmain"><div class="ttl"><a href="#book/${r.book_id}" style="color:inherit">${r.title}</a></div><div class="by">${r.author}${r.pages ? ` · ${r.pages} pages` : ''}</div>
+        <div class="hl2">${c.headline || r.fit.one_line || ''}</div>${strip(c.glance, r.review_digest)}</div>
+      ${fitBlock(r.fit)}
+    </div>
+    <div class="rowacts noprint"><a href="#book/${r.book_id}">Read the verdict</a><button class="linkbtn" data-shelf="Up next" data-rec="${r.id}">Save to Up next</button><button class="linkbtn" data-nudge="more like ${r.title}">More like this</button><button class="linkbtn" data-nudge="less like ${r.title}">Less like this</button><span class="saved" data-saved="${r.id}">${r.feedback ? labelFeedback(r.feedback) : ''}</span></div>
+  </div>`);
+}
 async function results(id) {
   const s = await get(`/api/sessions/${id}`);
   if (s.status !== 'recommended') return interview(id);
@@ -574,31 +688,93 @@ async function results(id) {
   const b = s.brief || {};
   const isPath = s.mode === 'path', isGift = s.mode === 'gift';
   const who = isGift ? (s.answers.find((a) => a.q_id === 'gift_who')?.free_text || 'them') : null;
+  const musts = b.must_haves || []; const mr = b.must_report;
+  // The must-haves were the bottleneck only when fewer than two judged books had them all.
+  const mustFail = !isPath && !isGift && musts.length > 0 && picks.length < 2 && (!mr || mr.passed_all < 2);
+  // Borderline books join the list below the picks: more choice, each with its number and the reason for the doubt.
+  const maybes = isPath ? [] : runners.filter((r) => r.fit.check?.verdict === 'maybe' && !r.fit.check.missing?.length).sort((x, y) => y.fit.check.fit - x.fit.check.fit);
+  const others = runners.filter((r) => !maybes.includes(r));
+  // A book she kept against the judge's advice stays on the page, below the ones the judge stands behind.
+  const keptLow = isPath ? [] : picks.filter((r) => r.fit.kept && r.fit.check && !['yes', 'probably'].includes(r.fit.check.verdict));
+  const main = picks.filter((r) => !keptLow.includes(r));
+  const dropped = (b.dropped || []).filter((d) => d.title);
+  const runnerRow = (r, body) => raw(h`<div class="runner">${coverImg(r.cover, r.title)}<div><div class="ttl"><a href="#book/${r.book_id}" style="color:inherit">${r.title}</a></div><div class="by">${r.author} · ${r.year || ''}</div>${body}${strip(r.fit.check?.glance, r.review_digest)}${checkLine(r.fit.check)}<div class="actions" style="border:0;padding-top:10px;margin-top:6px">${shelfMenu(r, shelves)}<span class="saved" data-saved="${r.id}">${r.feedback ? labelFeedback(r.feedback) : ''}</span></div></div></div>`);
   app.innerHTML = h`
   <section class="section" style="padding-top:8px">
-    <div class="row between" style="align-items:flex-start"><div class="eyebrow">${when(s.started_at)} · ${isPath ? 'the arc' : isGift ? `a gift for ${who}` : 'how I read you'}</div>${isPath ? raw(h`<div class="spotwrap">${raw(COMPASS)}</div>`) : ''}</div>
-    <p class="readernow" style="margin-top:12px">${b.reader_now || s.summary || ''}</p>
-    ${b.note_to_reader ? raw(h`<p class="note" style="margin-top:16px">${b.note_to_reader}</p>`) : ''}
+    <div class="row between" style="align-items:flex-start"><div class="eyebrow">${when(s.started_at)} · ${isPath ? 'the arc' : isGift ? `a gift for ${who}` : 'your books for today'}</div>${isPath ? raw(h`<div class="spotwrap">${raw(COMPASS)}</div>`) : ''}</div>
+    ${isPath ? raw(h`<p class="readernow" style="margin-top:12px">${b.reader_now || s.summary || ''}</p>`) : ''}
+    ${b.note_to_reader ? raw(h`<p class="note" style="margin-top:12px">${b.note_to_reader}</p>`) : ''}
+    ${b.nudges?.length ? raw(h`<p class="cap sec" style="margin-top:8px">Adjusted for: ${b.nudges.map((n) => n.text).join(' · ')}</p>`) : ''}
+    ${isPath ? '' : raw(h`<details><summary>How I read you today</summary><p class="readernow" style="font-size:18px">${b.reader_now || s.summary || ''}</p></details>`)}
     <details><summary>The brief</summary><dl class="facts">
       <dt>Need</dt><dd>${b.need}</dd><dt>Pace</dt><dd>${b.appeal_targets?.pace}</dd><dt>Tone</dt><dd>${(b.appeal_targets?.tone || []).join(', ')}</dd>
       <dt>Style</dt><dd>${(b.appeal_targets?.style || []).join(', ')}</dd><dt>Moods</dt><dd>${(b.appeal_targets?.moods || []).join(', ')}</dd><dt>Doorway</dt><dd>${b.appeal_targets?.doorway}</dd>
-      <dt>Must have</dt><dd>${(b.must_haves || []).join(', ') || 'nothing set'}</dd><dt>Hard excludes</dt><dd>${(b.hard_excludes || []).join(', ') || 'none'}</dd><dt>Soft avoid</dt><dd>${(b.soft_avoid || []).join(', ') || 'none'}</dd><dt>Slots</dt><dd>${(b.slots || []).join(' · ')}</dd></dl>
-      ${b.dropped?.length ? raw(h`<div class="cap sec" style="margin-top:12px"><b>Dropped after reading reviews:</b> ${b.dropped.map((d) => `${d.title}: ${d.reason}`).join(' · ')}</div>`) : ''}
+      <dt>Must have</dt><dd>${musts.length ? musts.map((m) => raw(h`${m}<br>`)) : 'nothing set'}</dd>${b.must_examples?.length ? raw(h`<dt>Your examples</dt><dd>${b.must_examples.join(', ')}</dd>`) : ''}
+      <dt>Hard excludes</dt><dd>${(b.hard_excludes || []).join(', ') || 'none'}</dd><dt>Soft avoid</dt><dd>${(b.soft_avoid || []).join(', ') || 'none'}</dd></dl>
     </details>
   </section>
+  ${mustFail ? raw(h`<section class="section"><div class="mustfail">
+    <h2>${picks.length ? 'Only one book has everything you asked for' : 'I could not find a book that has all of this'}</h2>
+    <ul class="plain" style="margin-top:10px">${musts.map((m) => raw(h`<li>${m}</li>`))}</ul>
+    ${mr ? raw(h`<p style="margin-top:12px;max-width:66ch">I judged <b>${mr.judged}</b> books against their real reviews${b.pool?.length ? `, out of ${b.pool.length} researched` : ''}, and searched a second time when the first list failed. <b>${mr.passed_all}</b> had every must-have${mr.passed_all > picks.length ? ', and the rest of those were not good enough for you on other grounds' : ''}.${mr.failed.some((x) => x.count) ? raw(h` What ruled out the most: ${mr.failed.filter((x) => x.count).slice(0, 3).map((x) => raw(h`<b>${x.must}</b> (${x.count} of ${mr.judged})`)).reduce((a, x, k) => (k ? [...a, ', ', x] : [x]), [])}.`) : ''}</p>`) : ''}
+    <p style="margin-top:10px;max-width:66ch">A must-have is a rule, so I am telling you instead of bending it. Maybe the combination is rare, or maybe I read one of these differently from you. One example settles that better than any description.</p>
+    <label class="lbl" for="mustEx">A book that, for you, has all of this (one you have read is fine)</label>
+    <input type="text" id="mustEx" placeholder="Title and author" autocomplete="off">
+    <div class="lbl">Or turn a rule into a strong wish for this search</div>
+    <div class="row" style="gap:6px 16px">${musts.map((m) => raw(h`<label class="cap"><input type="checkbox" data-relax="${m}"> ${m.split(':')[0]}</label>`))}</div>
+    <div class="row" style="margin-top:16px"><button class="btn primary" id="mustGo">Search again with this</button><span class="cap sec">A new search, about ten minutes. The closest calls are below meanwhile.</span></div>
+  </div></section>`) : ''}
   <section class="section">
-    <div class="row between" style="margin-bottom:20px"><div class="eyebrow">${isPath ? `Your path: ${picks.length} books` : isGift ? `${picks.length} gifts to choose from` : `Your ${picks.length} picks`}</div><div class="row noprint"><button class="btn sm" id="slateChatBtn">Ask about these picks</button><button class="btn sm" id="copyMd">Copy as text</button><a class="btn sm" href="/api/sessions/${id}/export?download=1">Download .md</a><button class="btn sm ghost" id="printBtn">Print</button></div></div>
+    <div class="row between" style="margin-bottom:12px"><div class="eyebrow">${isPath ? `Your path: ${picks.length} books` : isGift ? `${picks.length} gifts to choose from` : main.length ? `${main.length} ${main.length === 1 ? 'book' : 'books'}, best fit first` : 'Nothing passed'}</div><div class="row noprint"><button class="btn sm" id="slateChatBtn">Ask about these</button><button class="btn sm" id="copyMd">Copy as text</button><a class="btn sm" href="/api/sessions/${id}/export?download=1">Download .md</a><button class="btn sm ghost" id="printBtn">Print</button></div></div>
     <div id="slateChat" hidden style="margin-bottom:24px">${chatPanel({ sessionId: id, starters: ['Which one should I start tonight?', 'Compare the top two for me', 'Why nothing lighter / funnier?', 'Which is best as an audiobook?', 'What would a Polish reader get here?'] })}</div>
-    ${!picks.length ? raw(h`<p class="sec" style="max-width:62ch">No book passed both the must-haves and the second look this time. The closest calls are below.</p>`) : isPath ? raw(h`<div class="pathline">${picks.map((r, i) => pathStage(r, i, b, shelves, id))}</div>`) : raw(h`<div class="picks">${picks.map((r) => pickCard(r, shelves, id, isGift ? who : null))}</div>`)}</section>
-  ${exceptions.length ? raw(h`<section class="section"><div class="eyebrow">Worth breaking a must-have?</div><p class="cap sec" style="margin-top:4px;max-width:62ch">These miss one thing you said the book must have, so they are not picks. Save one only if the reason below wins you over; "Not for me" teaches the tool your rule was right.</p>${exceptions.map((r) => raw(h`<div class="runner">${coverImg(r.cover, r.title)}<div><div class="ttl"><a href="#book/${r.book_id}" style="color:inherit">${r.title}</a></div><div class="by">${r.author} · ${r.year || ''}</div><p style="margin-top:6px;font-size:17px"><b>Missing:</b> ${r.fit.missing}</p><p style="margin-top:4px;font-size:17px"><b>Worth it anyway?</b> ${r.fit.worth_it_because}</p>${checkLine(r.fit.check)}<div class="actions" style="border:0;padding-top:10px;margin-top:6px">${shelfMenu(r, shelves)}<span class="saved" data-saved="${r.id}">${r.feedback ? labelFeedback(r.feedback) : ''}</span></div></div></div>`))}</section>`) : ''}
-  ${runners.length ? raw(h`<section class="section"><div class="eyebrow">Also considered</div>${runners.map((r) => raw(h`<div class="runner">${coverImg(r.cover, r.title)}<div><div class="ttl"><a href="#book/${r.book_id}" style="color:inherit">${r.title}</a></div><div class="by">${r.author} · ${r.year || ''}</div><p style="margin-top:6px;font-size:17px">${r.fit.one_line}</p>${checkLine(r.fit.check)}<div class="actions" style="border:0;padding-top:10px;margin-top:6px">${shelfMenu(r, shelves)}<span class="saved" data-saved="${r.id}">${r.feedback ? labelFeedback(r.feedback) : ''}</span></div></div></div>`))}</section>`) : ''}
-  <section class="section row"><a class="btn" href="#home">New search</a><button class="btn" id="again">Same answers, different picks</button><span class="cap sec">Re-runs the research excluding everything shown here.</span></section>`;
+    ${!picks.length ? raw(h`<p class="sec" style="max-width:62ch">No book passed both the must-haves and the second look this time. The closest calls are below.</p>`) : isPath ? raw(h`<div class="pathline">${picks.map((r, i) => pathStage(r, i, b, shelves, id))}</div>`) : raw(h`<div class="rowpicks">${main.map((r, i) => pickRow(r, i, shelves, id, isGift ? who : null))}</div>`)}
+    ${maybes.length ? raw(h`<div class="eyebrow listdiv">Borderline · a "maybe" each, with the reason for the doubt</div><div class="rowpicks">${maybes.map((r, i) => maybeRow(r, main.length + i))}</div>`) : ''}
+    ${keptLow.length ? raw(h`<div class="eyebrow listdiv">Kept at your word · my honest verdict beside it</div><div class="rowpicks">${keptLow.map((r, i) => pickRow(r, main.length + maybes.length + i, shelves, id, null))}</div>`) : ''}
+  </section>
+  ${isPath || !picks.length ? '' : raw(h`<section class="section noprint" id="nudgeSec"><div class="eyebrow">Close, but not quite?</div>
+    <p class="cap sec" style="margin-top:6px;max-width:66ch">Say what to change and I rank the books already researched for this report again${b.pool?.length ? ` (${b.pool.length} of them)` : ''}. About a minute, nothing is fetched again.</p>
+    <div class="row" style="gap:8px;margin-top:12px" id="nudgeChips">${NUDGES.map((n) => raw(h`<button class="chip" data-n="${n}" aria-pressed="false">${n}</button>`))}</div>
+    <div id="nudgeTokens" class="row" style="gap:8px;margin-top:10px"></div>
+    <div class="row" style="margin-top:12px;flex-wrap:nowrap"><input type="text" id="nudgeText" placeholder="or in your words: like the second one but with more romance; no chosen-one plots" autocomplete="off" style="flex:1;min-width:0"><button class="btn primary" id="nudgeGo">Adjust the list</button></div>
+    <div id="nudgeStatus" class="cap sec" style="margin-top:8px"></div></section>`)}
+  ${exceptions.length ? raw(h`<section class="section"><details ${picks.length ? '' : 'open'}><summary>Near misses: good books that break one must-have (${exceptions.length})</summary><p class="cap sec" style="max-width:62ch">These miss one thing you said the book must have, so they are not on the list. Save one only if the reason wins you over; "Not for me" teaches the tool your rule was right.</p>${exceptions.map((r) => runnerRow(r, raw(h`<p style="margin-top:6px;font-size:17px"><b>Missing:</b> ${r.fit.missing}</p><p style="margin-top:4px;font-size:17px"><b>Worth it anyway?</b> ${r.fit.worth_it_because}</p>`)))}</details></section>`) : ''}
+  ${others.length ? raw(h`<section class="section"><div class="eyebrow">${picks.length ? 'Also considered' : 'The closest calls'}</div>${others.map((r) => runnerRow(r, raw(h`<p style="margin-top:6px;font-size:17px">${r.fit.one_line}</p>`)))}</section>`) : ''}
+  ${dropped.length ? raw(h`<section class="section"><details><summary>Set aside after reading the reviews (${dropped.length})</summary><p class="cap sec" style="max-width:62ch">Books I researched and left out, each with the reason. Disagree with one? Add it and it joins your list with an honest verdict.</p>${dropped.map((d) => raw(h`<div class="aside"><div><b>${d.title}</b><div class="cap sec">${d.reason}</div></div>${d.book_id ? raw(h`<div class="row noprint" style="flex-wrap:nowrap"><a class="btn sm ghost" href="#book/${d.book_id}">Look</a><button class="btn sm" data-addbook="${d.book_id}">Add it anyway</button></div>`) : ''}</div>`))}</details></section>`) : ''}
+  <section class="section row"><a class="btn" href="#home">New search</a><button class="btn" id="again">Same answers, a fresh search</button><span class="cap sec">Researches a new long list, excluding everything shown here. About ten minutes.</span></section>`;
   wireShelfButtons();
   wireChats();
-  app.querySelectorAll('[data-happened]').forEach((b) => b.onclick = () => goDebrief(b.dataset.book, b.dataset.happened, 'ask'));
+  app.querySelectorAll('[data-happened]').forEach((x) => x.onclick = () => goDebrief(x.dataset.book, x.dataset.happened, 'ask'));
+  // Rows open and close; links and buttons inside a row keep their own behaviour.
+  const toggle = (recId) => { const full = document.getElementById(`full-${recId}`); if (!full) return; full.hidden = !full.hidden; app.querySelectorAll(`[data-toggle="${recId}"]`).forEach((x) => { x.setAttribute('aria-expanded', String(!full.hidden)); if (x.hasAttribute('data-label')) x.textContent = full.hidden ? 'Read the full case' : 'Close the full case'; }); };
+  app.querySelectorAll('[data-toggle]').forEach((x) => { x.onclick = (e) => { if (e.target.closest('a')) return; toggle(x.dataset.toggle); }; x.onkeydown = (e) => { if (e.key === 'Enter' && e.target === x) { e.preventDefault(); toggle(x.dataset.toggle); } }; });
   document.getElementById('slateChatBtn').onclick = () => { const el = document.getElementById('slateChat'); el.hidden = !el.hidden; if (!el.hidden) el.querySelector('textarea')?.focus(); };
-  document.getElementById('copyMd').onclick = async () => { const t = await (await fetch(`/api/sessions/${id}/export`)).text(); try { await navigator.clipboard.writeText(t); toast('Copied the slate as text'); } catch { toast('Could not copy; use Download instead'); } };
+  document.getElementById('copyMd').onclick = async () => { const t = await (await fetch(`/api/sessions/${id}/export`)).text(); try { await navigator.clipboard.writeText(t); toast('Copied the list as text'); } catch { toast('Could not copy; use Download instead'); } };
   document.getElementById('printBtn').onclick = () => window.print();
+  // Adjusting the list: chips, "more/less like this" on a row, and her own words all go into one request.
+  const nudgeGo = document.getElementById('nudgeGo');
+  if (nudgeGo) {
+    const tokens = new Set(); const tokEl = document.getElementById('nudgeTokens'); const status = document.getElementById('nudgeStatus');
+    const paintTokens = () => { tokEl.innerHTML = [...tokens].map((t) => h`<button class="chip lamp" data-tok="${t}" title="Remove">${t} ✕</button>`).join(''); tokEl.querySelectorAll('[data-tok]').forEach((x) => x.onclick = () => { tokens.delete(x.dataset.tok); paintTokens(); }); };
+    app.querySelectorAll('[data-n]').forEach((c) => c.onclick = () => c.setAttribute('aria-pressed', c.getAttribute('aria-pressed') === 'true' ? 'false' : 'true'));
+    app.querySelectorAll('[data-nudge]').forEach((x) => x.onclick = () => { tokens.add(x.dataset.nudge); paintTokens(); toast('Added. Press "Adjust the list" when you are ready.'); document.getElementById('nudgeSec').scrollIntoView({ behavior: 'smooth', block: 'center' }); });
+    const run = act(nudgeGo, async () => {
+      const parts = [...[...app.querySelectorAll('[data-n][aria-pressed="true"]')].map((c) => c.dataset.n.toLowerCase()), ...tokens, document.getElementById('nudgeText').value.trim()].filter(Boolean);
+      if (!parts.length) return toast('Pick a change, or say it in your words.');
+      status.innerHTML = '<span class="spinner"></span> Ranking the researched books again… about a minute.';
+      try { await post(`/api/sessions/${id}/nudge`, { text: parts.join('; ') }); } catch (e) { status.textContent = ''; throw e; }
+      toast('Adjusted.'); results(id); window.scrollTo({ top: 0 });
+    });
+    nudgeGo.onclick = run;
+    document.getElementById('nudgeText').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); run(); } };
+  }
+  const mustGo = document.getElementById('mustGo');
+  if (mustGo) mustGo.onclick = act(mustGo, async () => {
+    const example = document.getElementById('mustEx').value.trim();
+    const relax = [...app.querySelectorAll('[data-relax]:checked')].map((x) => x.dataset.relax);
+    if (!example && !relax.length) return toast('Name a book that has it, or tick a rule to relax.');
+    await post(`/api/sessions/${id}/retry-musts`, { example, relax }); renderProgress(id); window.scrollTo({ top: 0 });
+  });
+  app.querySelectorAll('[data-addbook]').forEach((x) => x.onclick = act(x, async () => { x.textContent = 'Judging it… about half a minute'; try { await post(`/api/sessions/${id}/add-book`, { bookId: Number(x.dataset.addbook) }); } catch (e) { x.textContent = 'Add it anyway'; throw e; } toast('Added to your list.'); results(id); }));
   const againBtn = document.getElementById('again');
   againBtn.onclick = act(againBtn, async () => {
     for (const r of s.recommendations) if (!r.feedback) await post(`/api/recommendations/${r.id}/feedback`, { feedback: 'not_now' });
@@ -649,6 +825,7 @@ function pickCard(r, shelves, sessionId, giftFor = null, inPath = false) {
       <div class="ttl"><a href="#book/${r.book_id}">${r.title}</a></div>
       <div class="by">${r.author} · ${r.year || ''}${r.pages ? ` · ${r.pages} pages` : ''}${d?.polarising ? ' · polarising' : ''}</div>
       <div class="row" style="gap:6px">${chips.map((c) => raw(h`<span class="chip">${c}</span>`))}</div>
+      ${strip(f.check?.glance, d)}
       <div class="hl">${f.headline}</div>
       <p class="why">${f.why_now}</p>
       ${checkLine(f.check)}
@@ -763,13 +940,14 @@ function glance(d, b = {}) {
 // The slate's second opinion: the same verdict the book page shows under "Should you read it?".
 function checkLine(c) {
   if (!c) return '';
-  return raw(h`<p class="cap sec" style="margin-top:8px">Second look, "Should I read this?": <b style="color:var(--ink)">${verdictLabel(c.verdict)}</b>, ${c.fit}% fit.</p>`);
+  return raw(h`<p class="cap sec" style="margin-top:8px">Second look, "Should I read this?": <b style="color:var(--ink)">${verdictLabel(c.verdict)}</b>, ${c.fit}% fit for today${c.fit_general != null ? `, ${c.fit_general}% in general` : ''}.</p>`);
 }
 function verdictBlock(v, when_) {
   const tone = ['yes', 'probably'].includes(v.verdict) ? 'good' : v.verdict === 'maybe' ? 'mid' : 'bad';
   return raw(h`<div class="verdict ${tone}">
-    <div class="vhead"><span class="vword">${verdictLabel(v.verdict)}</span><span class="vfit"><span class="tabular">${v.fit}</span>% fit</span>${when_ ? raw(h`<span class="cap sec">judged ${when(when_)}</span>`) : ''}</div>
+    <div class="vhead"><span class="vword">${verdictLabel(v.verdict)}</span><span class="vfit"><span class="tabular">${v.fit}</span>% fit${v.fit_general != null ? raw(h` for today · <span class="tabular">${v.fit_general}</span>% in general`) : ''}</span>${when_ ? raw(h`<span class="cap sec">judged ${when(when_)}</span>`) : ''}</div>
     <div class="hl" style="margin-top:6px">${v.headline}</div>
+    ${strip(v.glance, null)}
     <p class="prose" style="margin-top:10px">${v.why}</p>
     <dl class="facts">
       ${v.must_haves_missing?.length ? raw(h`<dt>Misses your must-have</dt><dd>${v.must_haves_missing.join('; ')}</dd>`) : ''}
@@ -1028,6 +1206,8 @@ async function profile() {
 // ---------- mood chart: three single-series strip charts over sessions, plus the words ----------
 const SCALES = [['demand', 'Effort', 'easy', 'demanding'], ['tone', 'Light / dark', 'light', 'dark'], ['safe', 'Safe / disturbing', 'safe', 'disturbing']];
 const SHORT_MOOD = { good_energetic: 'Good, energetic', good_calm: 'Good, calm', flat: 'Flat', stressed: 'Stressed', low: 'Low', raw: 'Raw', restless: 'Restless' };
+const HARD_MOODS = ['stressed', 'anxious', 'irritable', 'low', 'lonely', 'raw', 'flat', 'numb', 'tired', 'restless'];
+const moodWords = (m) => String(SHORT_MOOD[m.mood_id] || m.mood || '').split(' + ').filter(Boolean);
 function moodChart(all) {
   if (!all.length) return raw(`<div class="empty" style="margin-top:12px">${LAMP}<div class="big">No check-ins yet</div><div>Your mood, need, effort and light-dark answers land here after each interview.</div></div>`);
   const n = Math.min(all.length, window.innerWidth < 640 ? 8 : 16);
@@ -1058,10 +1238,10 @@ function moodSummary(all) {
   if (all.length < 3) return [];
   const count = (arr) => { const c = {}; for (const x of arr) if (x) c[x] = (c[x] || 0) + 1; return Object.entries(c).sort((a, b) => b[1] - a[1]); };
   const out = [];
-  const [topMood] = count(all.map((m) => SHORT_MOOD[m.mood_id] || m.mood));
+  const [topMood] = count(all.flatMap(moodWords));
   const [topNeed] = count(all.map((m) => m.need));
   if (topMood) out.push(`Most often you arrive ${topMood[0].toLowerCase()} (${topMood[1]} of ${all.length} check-ins)${topNeed ? ` and ask the book to ${topNeed[0].toLowerCase()}` : ''}.`);
-  const hard = all.filter((m) => ['stressed', 'low', 'raw', 'flat', 'restless'].includes(m.mood_id));
+  const hard = all.filter((m) => [].concat(m.mood_id || []).some((x) => HARD_MOODS.includes(x)));
   const hardNeeds = count(hard.map((m) => m.need));
   if (hard.length >= 2 && hardNeeds.length) out.push(`On harder days (${hard.length}) you have asked for: ${hardNeeds.slice(0, 3).map(([k, v]) => `${k.toLowerCase()} ×${v}`).join(', ')}.`);
   const avg = (k) => { const v = all.map((m) => m[k]).filter(Boolean); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
@@ -1158,6 +1338,7 @@ async function settings() {
       <label class="lbl"><input type="checkbox" id="verifyPicks" ${s.verify_picks ? 'checked' : ''}> Second look: ask "Should I read this?" about every pick before showing it (stricter, adds a few minutes)</label>
       <label class="lbl">Adaptive follow-up questions per session (0 to 4)</label><input type="number" id="adaptive" min="0" max="4" value="${s.adaptive_count}" style="width:90px">
       <label class="lbl">Hardcover.app API token (optional; adds crowd moods and content warnings from a sanctioned source). Currently: ${s.hardcover_token || 'not set'}</label><input type="text" id="hc" placeholder="paste token, or leave empty">
+      <label class="lbl" for="pins">Questions answered on every book, whatever you are searching for (comma-separated, up to four). Romance and series are always shown; the rest of the labels follow each search.</label><input type="text" id="pins" value="${s.pinned_questions}" placeholder="e.g. Young-adult feel, Ending, Animal harm">
       <p class="cap sec" style="margin-top:12px">Polish: when a session asks for Polish-language books, lubimyczytac.pl ratings (1 to 10) and Polish reviews are pulled too.</p>
       <p style="margin-top:20px"><button class="btn primary" id="save">Save settings</button></p></section>
     <section class="section"><h2>Data</h2><p class="sec" style="margin-top:8px">Everything lives in <code>data/bookfinder.db</code> next to the app. A copy is made in <code>data/backups</code> every day the app starts; the last seven are kept.</p>
@@ -1184,6 +1365,7 @@ async function settings() {
   document.getElementById('save').onclick = async () => {
     const body = { candidates_web: document.getElementById('web').checked, adaptive_count: document.getElementById('adaptive').value, chat_web: document.getElementById('chatWeb').checked, auto_reflect: document.getElementById('autoReflect').checked, verify_picks: document.getElementById('verifyPicks').checked };
     const hc = document.getElementById('hc').value.trim(); if (hc) body.hardcover_token = hc;
+    body.pinned_questions = document.getElementById('pins').value.trim();
     app.querySelectorAll('[data-tier]').forEach((el) => (body['tier_' + el.dataset.tier] = el.value));
     app.querySelectorAll('[data-model]').forEach((el) => (body['model_' + el.dataset.model] = el.value.trim()));
     await post('/api/settings', body); toast('Settings saved');

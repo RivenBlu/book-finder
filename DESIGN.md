@@ -56,6 +56,18 @@ Memory for why a book worked decays within weeks and gets rewritten by what we s
 ## 17. Every report stays open
 Recommendations are hypotheses; the reader must be able to go back to any of them, reread the reasoning, and correct the record ("I did read it", "it was not the slow start, it was the narrator"). Past picks is that record: every slate with its reading of the day, every book with its outcome, and the same outcome and debrief flow available from the report, the book page, the shelves and the home page. Correction is as valuable as a new interview and much cheaper.
 
+## 18. State outranks trait, visibly
+The first weeks of real use showed the profile leaning on the reader's stated taste even when she asked for something else. Principle 2b in the prompts now says it outright: today's craving chooses the kind of book, lasting taste chooses within that kind. The judge returns two numbers (fit for today, fit in general) so a guilty pleasure is not marked down for not being literature, and the reader can see which of the two a book is. The mood question follows the two axes of the affect circumplex (pleasant to unpleasant, wound-up to run-down): thirteen states in four groups, up to three at once, because the low-energy states that used to share one answer want opposite books.
+
+## 19. A must-have is a test both sides agreed on
+Two real searches failed on interpretation, not on supply: "romance" was failed by a quiet subplot, "high fantasy" by a book without magic, "best in class" by split reviews. So each must-have is now defined before the search (one closed question per ambiguous rule, loosest to strictest reading; reference books for judgements), written into the brief as "her words: the test", and applied by every later step exactly as written. Fewer than two passing books triggers one narrower second search that sees what failed and why. If that fails too, the page says so, counts which rule ruled out how many books, and asks for an example book or a rule to relax. It never pads.
+
+## 20. A list to scan, a case to open
+One pick used to be about 1,200 pixels of prose. The list is now up to eight rows (rank, cover, title, a two-word label for how it differs, one sentence, labels, fit), ordered by the judge's fit; the full case sits behind each row. Long lists are only hard when each item is heavy to compare (Chernev 2015), and the reader asked for more choice. The labels answer the questions she kept typing into the chat: romance and series always, the rest chosen per search by the brief (`glance_questions`) plus any she pins.
+
+## 21. The reader can overrule the tool, cheaply
+Control cuts algorithm aversion (Dietvorst 2018) and a wrong slate used to cost a ten-minute rerun. Three overrides: "Keep it in" on any candidate while the research runs, "Add it anyway" on anything set aside afterwards (both get an honest verdict, and a miss on a must-have is printed beside the book), and nudges, which rank the session's researched pool again in one model call. Nudges are stored as answers, so later sessions learn from them.
+
 ## Known limits
 - Goodreads has no API; page parsing may break when their layout changes (`src/sources/goodreads.js`). Their terms disallow automated gathering; this is strictly personal, one page per book, cached.
 - Hardcover (sanctioned) is optional and needs a free token; its review text is not used yet.

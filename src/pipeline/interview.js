@@ -1,7 +1,7 @@
 // Interview engine: serves the next question, records answers, writes profile facts, asks the LLM for
 // anchor-disambiguation questions (which part of a loved book did the work) and adaptive follow-ups.
 import { ONBOARDING, CHECKIN, QUICK_IDS, PATH, PATH_CHECKIN_IDS, GIFT, questionById } from '../questions.js';
-import { db, getSession, updateSession, getAnswers, addAnswer, setFact, getFacts, getSetting } from '../db.js';
+import { db, getSession, updateSession, getAnswers, addAnswer, setFact, getFacts, getSetting, recentAnswers } from '../db.js';
 import { ask } from '../llm.js';
 import { ADAPTIVE_SCHEMA, ADAPTIVE_SYSTEM, ANCHORS_SCHEMA, ANCHORS_SYSTEM } from '../prompts.js';
 import { fullContext, answersDigest } from './context.js';
@@ -62,6 +62,12 @@ export function nextQuestion(sessionId) {
 
 // For trait questions, show the previous answer so the reader can confirm quickly.
 function withPrefill(q) {
+  // Free-text state questions offer what she wrote the last few times as one-tap chips, so a standing wish is never retyped.
+  if (q.suggest) {
+    const seen = new Set(); const suggestions = [];
+    for (const a of recentAnswers(q.id, 12)) { const t = (a.free_text || '').trim(); const k = t.toLowerCase(); if (t && !seen.has(k)) { seen.add(k); suggestions.push({ text: t, at: a.started_at.slice(0, 10) }); } }
+    return suggestions.length ? { ...q, suggestions: suggestions.slice(0, 4) } : q;
+  }
   if (q.layer !== 'onboarding') return q;
   const f = getFacts({ kind: 'trait' }).find((x) => x.key === q.id);
   return f ? { ...q, previous: f.value } : q;
@@ -134,13 +140,18 @@ export async function generateAnchors(sessionId) {
 export async function generateAdaptive(sessionId) {
   const session = getSession(sessionId);
   const n = Number(getSetting('adaptive_count', '3'));
-  if (n <= 0) { updateSession(sessionId, { adaptive: [] }); return []; }
+  // Must-haves are filters, so their meaning is pinned down first: one closed question per must-have that can be read
+  // more than one way. These come on top of the ordinary follow-ups, and are asked even when follow-ups are switched off.
+  const musts = (getAnswers(sessionId).find((a) => a.q_id === 'musts_now' && !a.skipped)?.free_text || '').trim();
+  if (n <= 0 && !musts) { updateSession(sessionId, { adaptive: [] }); return []; }
   const ctx = session.mode === 'gift' ? { gift: true, note: 'This interview is about another person (a gift). Only the session answers describe them.', session_answers: answersDigest(sessionId) } : fullContext(sessionId);
   const extra = session.mode === 'path' ? ' The reader is designing a READING PATH (several books in order over weeks); ask what sharpens the arc: the first step, the destination, or the thread.' : session.mode === 'gift' ? ' The books are a GIFT for the person described; ask what narrows the choice for them.' : '';
-  const prompt = `READER CONTEXT (JSON):\n${JSON.stringify(ctx, null, 1)}\n\nDesign ${Math.min(n, 4)} follow-up questions (or fewer if the picture is already sharp). Prefer one "pair" question with invented micro-blurbs.${extra}`;
+  const mustPart = musts ? `\n\nMUST-HAVES. The reader wrote these non-negotiables: "${musts}". They become hard filters, and past searches failed because the tool read a must-have more strictly or more loosely than she meant. So FIRST write one closed question per must-have whose meaning could be read in more than one way (at most 3 such questions, ids prefixed adaptive_must_, type single). The options run from the loosest reading to the strictest and are concrete, e.g. for "romance": "Any love thread, even a quiet one" / "A real subplot with page time" / "The romance is the main story"; for "high fantasy": "Any invented world" / "Invented world where magic matters" / "Epic scale: kingdoms, wars, magic". For a must-have that is a judgement and cannot be checked as a fact ("well written", "smart", "best in class"), instead offer 4-6 real, widely known books of the kind she is asking about as reference points and ask which are at the level she means (type multi; real titles are allowed in this one case, with the author in the hint). Skip a must-have that is already unambiguous ("under 400 pages", "standalone") or that she already illustrated with an example book. These questions do not count towards the number below.` : '';
+  const prompt = `READER CONTEXT (JSON):\n${JSON.stringify(ctx, null, 1)}${mustPart}\n\nDesign ${Math.min(Math.max(n, 0), 4)} ${musts ? 'further ' : ''}follow-up questions (or fewer if the picture is already sharp). Prefer one "pair" question with invented micro-blurbs.${extra}`;
   const { data } = await ask({ system: ADAPTIVE_SYSTEM, prompt, schema: ADAPTIVE_SCHEMA, tier: getSetting('tier_adaptive', 'smart'), effort: 'medium' });
-  const qs = (data.questions || []).slice(0, 4).map((q, i) => ({
+  const qs = (data.questions || []).slice(0, 7).map((q, i) => ({
     id: `adaptive_${i + 1}_${(q.id || 'q').replace(/^adaptive_/, '').replace(/\W+/g, '_').slice(0, 40)}`,
+    must: /^(adaptive_)?must_/.test(q.id || '') || undefined,
     layer: 'adaptive', type: q.type === 'pair' ? 'single' : q.type, text: q.text, help: q.help || '',
     options: q.options.map((o, j) => ({ id: o.id || `o${j + 1}`, label: o.label, hint: o.hint || '' })),
     pair: q.type === 'pair',

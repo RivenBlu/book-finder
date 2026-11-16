@@ -254,3 +254,36 @@ test('second opinion never leaves an empty page: the two closest calls stay as r
   assert.match(out.runners_up[0].one_line, /^Closest call/);
   assert.deepEqual(out.dropped.map((d) => d.candidate_index), [1]);
 });
+
+test('second opinion keeps a longer list in fit order and carries both fit numbers and the labels', () => {
+  const found = 'ABCDEFGHIJ'.split('').map((t) => ({ book: { title: t } }));
+  const v = (fit, extra = {}) => ({ verdict: 'probably', fit, fit_general: fit - 20, glance: [{ label: 'Romance', value: 'none' }], headline: `h${fit}`, why: 'w', you_will_love: 'l', will_bother_you: 'b', biggest_risk: 'r', best_moment: 'm', not_now_if: 'n', first_pages: 'f', must_haves_missing: [], confidence: 0.7, ...extra });
+  const ranked = { picks: [0, 1].map((i) => ({ candidate_index: i, slot: 's' })), runners_up: [2, 3, 4, 5, 6, 7, 8, 9].map((i) => ({ candidate_index: i, one_line: '' })), exceptions: [], dropped: [], note_to_reader: '' };
+  const verdicts = new Map([[0, v(61)], [1, v(75)], [2, v(90)], [3, v(64)], [4, v(66)], [5, v(68)], [6, v(70)], [7, v(72)], [8, v(62)], [9, v(63)]]);
+  const out = applySecondOpinion(ranked, verdicts, found);
+  assert.equal(out.picks.length, 8, 'up to eight books make the list');
+  assert.deepEqual(out.picks.map((p) => p.check.fit), [90, 75, 72, 70, 68, 66, 64, 61], 'best fit first, and the two the ranker chose stay on it');
+  assert.equal(out.picks[0].check.fit_general, 70);
+  assert.equal(out.picks[0].check.glance[0].label, 'Romance');
+  assert.deepEqual(out.runners_up.map((r) => r.candidate_index).sort(), [8, 9]);
+});
+
+test('check-in: several moods at once read as one line; the craving question offers earlier wishes', async () => {
+  const { nextQuestion, recordAnswer } = await import('../src/pipeline/interview.js');
+  DB.setFact({ key: 'onboarding_completed', value: true, kind: 'trait', source: 'answer' });
+  const s1 = DB.createSession('quick');
+  let nx = nextQuestion(s1);
+  assert.equal(nx.question.id, 'mood_now'); assert.equal(nx.question.type, 'multi'); assert.equal(nx.question.max, 3);
+  assert.ok(nx.question.options.some((o) => o.id === 'bored') && nx.question.options.some((o) => o.id === 'good_calm'), 'calm and bored are separate answers');
+  recordAnswer(s1, { qId: 'mood_now', answer: ['bored', 'tired'] });
+  recordAnswer(s1, { qId: 'need_now', answer: 'indulge' });
+  recordAnswer(s1, { qId: 'wish_now', answer: null, freeText: 'vampire trash, the good kind' });
+  const m = DB.moodLog(5).find((x) => x.session_id === s1);
+  assert.equal(m.mood, 'Bored, understimulated + Tired, drained');
+  assert.deepEqual(m.mood_id, ['bored', 'tired']);
+  const s2 = DB.createSession('quick');
+  recordAnswer(s2, { qId: 'mood_now', answer: ['good_calm'] }); recordAnswer(s2, { qId: 'need_now', answer: 'comfort' });
+  nx = nextQuestion(s2);
+  assert.equal(nx.question.id, 'wish_now', 'the craving is asked right after mood and need');
+  assert.equal(nx.question.suggestions[0].text, 'vampire trash, the good kind');
+});
