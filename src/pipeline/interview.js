@@ -56,8 +56,18 @@ export function nextQuestion(sessionId) {
   if (session.mode === 'onboarding') return { done: true, index, total };
   const adaptive = session.adaptive || null;
   if (!adaptive) return adaptiveN > 0 ? { needsAdaptive: true, index, total } : { done: true, index, total };
-  for (const q of adaptive) { if (!answered.has(q.id)) return { question: q, index, total: planned.length + anchorN + adaptive.length, phase: 'adaptive' }; index++; }
+  for (const q of adaptive) { if (!answered.has(q.id)) return { question: withContext(q, getAnswers(sessionId)), index, total: planned.length + anchorN + adaptive.length, phase: 'adaptive' }; index++; }
   return { done: true, index, total: planned.length + anchorN + adaptive.length };
+}
+
+// A follow-up written by the model refers back to something she typed several screens (or days) earlier.
+// Show her those words with the question, so it still makes sense when she comes back to a half-done interview.
+function withContext(q, answers) {
+  const said = (id) => (answers.find((a) => a.q_id === id && !a.skipped)?.free_text || '').trim();
+  const musts = said('musts_now'), wish = said('wish_now');
+  if (q.must && musts) return { ...q, context: { label: 'You said this is a must', text: musts } };
+  if (wish) return { ...q, context: { label: 'You asked for', text: wish } };
+  return q;
 }
 
 // For trait questions, show the previous answer so the reader can confirm quickly.

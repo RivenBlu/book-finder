@@ -498,7 +498,8 @@ async function renderQuestion(id, nx, mode, reaction) {
   const prevText = q.previous?.text || '';
   app.innerHTML = h`
   <div class="interview"><div class="q">
-    <div class="meta"><span class="eyebrow">${q.must ? 'What you mean by it' : phase} · <span class="tabular">${nx.index + 1} of ${total}</span></span><span class="react">${reaction}</span></div>
+    <div class="meta"><span class="eyebrow">${q.must ? 'Pinning down your must-haves' : phase} · <span class="tabular">${nx.index + 1} of ${total}</span></span><span class="react">${reaction}</span></div>
+    ${q.context ? raw(h`<p class="qctx"><span>${q.context.label}</span>${q.context.text}</p>`) : ''}
     <div class="text">${q.text}</div>
     ${q.help ? raw(h`<p class="help">${q.help}</p>`) : ''}
     ${q.previous ? raw(h`<div class="prev">Last time: <b>${(q.previous.labels || []).join(', ')}${q.previous.text ? (q.previous.labels?.length ? ' · ' : '') + q.previous.text : ''}</b>. Press Enter to keep it, or change it.</div>`) : ''}

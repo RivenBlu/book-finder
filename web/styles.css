@@ -542,3 +542,7 @@ nav { font-size: 16px; }
 .uprow .cover { aspect-ratio: 2 / 3; height: auto; box-shadow: var(--shadow); }
 .uprow .cover.fallback { padding: 6px; }
 .uprow .fit { min-height: 1.2em; }
+
+/* The reader's own earlier words, shown above a follow-up question that refers to them. */
+.qctx { margin: 0 0 18px; padding: 10px 14px; border-left: 3px solid var(--lamp); background: var(--tint); border-radius: 0 8px 8px 0; font-size: 16.5px; color: var(--ink); max-width: 60ch; }
+.qctx span { display: block; font-family: var(--ui); font-size: 12.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); margin-bottom: 3px; }
