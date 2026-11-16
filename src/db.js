@@ -338,12 +338,14 @@ export function getRecommendations(sessionId) {
 export function setRecommendationFeedback(id, feedback, note = null, outcome = null) {
   db.prepare('UPDATE recommendations SET feedback = ?, feedback_note = ?, outcome = COALESCE(?, outcome) WHERE id = ?').run(feedback, note, outcome ? J(outcome) : null, id);
 }
-// Picks from earlier sessions that never got an outcome: the loop-closer screen asks about them.
+// Picks from earlier sessions that never got an outcome: the loop-closer screen asks about them. A pick she never
+// touched is asked about for three weeks and then lapses quietly; one she saved or started is asked about after a week.
 export function pendingFollowups(excludeSessionId = null, limit = 6) {
   return db.prepare(`SELECT r.id, r.session_id, r.book_id, r.slot, r.fit, r.created_at, b.title, b.author, b.cover, b.pages, b.year, b.url, b.description, b.review_digest, s.mode
                      FROM recommendations r JOIN books b ON b.id = r.book_id JOIN sessions s ON s.id = r.session_id
-                     WHERE r.feedback IS NULL AND r.slot NOT IN ('runner_up', 'exception') AND s.mode != 'gift' AND r.session_id != ? AND r.created_at < ?
-                     ORDER BY r.id DESC LIMIT ?`).all(excludeSessionId ?? -1, new Date(Date.now() - 36e5).toISOString(), limit)
+                     WHERE r.slot NOT IN ('runner_up', 'exception') AND s.mode != 'gift' AND r.session_id != ? AND r.created_at < ? AND r.superseded_at IS NULL
+                       AND ((r.feedback IS NULL AND r.created_at > ?) OR (r.feedback IN ('saved', 'started') AND r.created_at < ?))
+                     ORDER BY r.id DESC LIMIT ?`).all(excludeSessionId ?? -1, new Date(Date.now() - 36e5).toISOString(), new Date(Date.now() - 21 * 864e5).toISOString(), new Date(Date.now() - 7 * 864e5).toISOString(), limit)
     .map((r) => ({ ...r, fit: P(r.fit), description: (r.description || '').slice(0, 600), review_digest: compactDigest(P(r.review_digest)) }));
 }
 function compactDigest(d) {

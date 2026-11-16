@@ -103,6 +103,7 @@ export function fullContext(sessionId) {
     after_reading: debriefsDigest(),
     say_vs_do: (() => { const s = sayVsDo(); return s.sentences.length ? s.sentences : undefined; })(),
     appeal_fingerprint: fingerprintCompact() || undefined,
-    underlined: listNotes({ limit: 25 }).map((n) => `${n.title ? n.title + ': ' : ''}"${n.text.slice(0, 240)}"`),
+    underlined: listNotes({ limit: 40 }).filter((n) => n.kind !== 'checkin').slice(0, 25).map((n) => `${n.title ? n.title + ': ' : ''}"${n.text.slice(0, 240)}"`),
+    reading_checkins: (() => { const c = listNotes({ limit: 40 }).filter((n) => n.kind === 'checkin').slice(0, 10).map((n) => `${n.title || '?'} (${String(n.created_at).slice(0, 10)}): ${n.text}`); return c.length ? c : undefined; })(),
   };
 }

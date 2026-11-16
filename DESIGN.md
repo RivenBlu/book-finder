@@ -68,6 +68,15 @@ One pick used to be about 1,200 pixels of prose. The list is now up to eight row
 ## 21. The reader can overrule the tool, cheaply
 Control cuts algorithm aversion (Dietvorst 2018) and a wrong slate used to cost a ten-minute rerun. Three overrides: "Keep it in" on any candidate while the research runs, "Add it anyway" on anything set aside afterwards (both get an honest verdict, and a miss on a must-have is printed beside the book), and nudges, which rank the session's researched pool again in one model call. Nudges are stored as answers, so later sessions learn from them.
 
+## 22. Reactions beat descriptions
+After three weeks the profile still rested on a handful of books named from memory, and no book had earned a clear yes. People mispredict what they enjoy when asked in the abstract (Wilson & Gilbert 2005) and choosing among real items elicits taste better than describing it (Graus & Willemsen 2015). The taste trainer asks for reactions to books the reader already knows, chosen by the model to settle what is still unknown about her, including popular books she may dislike. "Loved as a treat" and "loved as a serious read" are stored separately because she has one taste per mood (section 18). Answers are ordinary reading history with the source "trainer".
+
+## 23. A fast answer from work already done
+Every search researches 12 to 22 books and shows a few; the rest stay in the database with their reviews digested. A fast pick ranks those leftovers against today's answers and runs the second look on the best: no long list, no fetching, about five minutes. It is offered beside the full search, never instead of it, because it cannot find a book the tool has never looked at.
+
+## 24. Small honesty in the interface
+The reading check-in separates "not now" from "not for me", because a parked book and a rejected book teach opposite lessons. The Reader DNA page hides a chart until it has two points, keeps tables behind a fold, and puts "that is right" and "that is wrong" beside every inferred pattern, so a claim is either confirmed by the reader or gone. Questions the app asks in passing use its own dialog; the browser's grey boxes broke the look and did nothing on some phones.
+
 ## Known limits
 - Goodreads has no API; page parsing may break when their layout changes (`src/sources/goodreads.js`). Their terms disallow automated gathering; this is strictly personal, one page per book, cached.
 - Hardcover (sanctioned) is optional and needs a free token; its review text is not used yet.

@@ -11,8 +11,8 @@ import { fileURLToPath } from 'node:url';
 import * as DB from './db.js';
 import { ONBOARDING, CHECKIN } from './questions.js';
 import { nextQuestion, recordAnswer, generateAdaptive, generateAnchors, onboardingDone, undoLastAnswer } from './pipeline/interview.js';
-import { runRecommendation, subscribe, progressOf, isRunning, lookupBook, importGoodreadsBook, digestBook, lookupPolish, keepBook, keptBooks, nudgeSlate, addBookToSlate } from './pipeline/recommend.js';
-import { followups, recordOutcome, sayVsDo, fingerprint, reportStats, writeReport, enrichHistory, historyJob, authorNext, debriefPlan, recordDebrief, debriefFollowup, debriefPatterns } from './pipeline/insights.js';
+import { runRecommendation, subscribe, progressOf, isRunning, lookupBook, importGoodreadsBook, digestBook, lookupPolish, keepBook, keptBooks, nudgeSlate, addBookToSlate, researchedCount } from './pipeline/recommend.js';
+import { followups, recordOutcome, sayVsDo, fingerprint, reportStats, writeReport, enrichHistory, historyJob, authorNext, debriefPlan, recordDebrief, debriefFollowup, debriefPatterns, trainerList, trainerAnswer, listTrainer } from './pipeline/insights.js';
 import { backupDatabase, listBackups, checkHealth, health, exportAll, importAll, lanStatus, setLan, lanToken } from './ops.js';
 import { reflectProfile, importHistoryCsv } from './pipeline/reflect.js';
 import { MODELS, resolveModel } from './llm.js';
@@ -107,7 +107,9 @@ route('POST', '/api/sessions', async (req) => { const b = await body(req); DB.pr
 route('GET', '/api/sessions', async () => DB.listSessions(50));
 route('GET', '/api/sessions/:id', async (req, p) => {
   const s = DB.getSession(Number(p.id)); if (!s) throw httpError(404, 'no such session');
-  return { ...s, answers: DB.getAnswers(s.id), recommendations: DB.getRecommendations(s.id).map(withShelves), running: isRunning(s.id) };
+  // The highest fit any book has ever been given: lets the page say "your highest so far" beside a number that looks modest.
+  const best = DB.db.prepare("SELECT MAX(CAST(json_extract(verdict, '$.fit') AS INTEGER)) AS m FROM verdicts").get()?.m ?? null;
+  return { ...s, answers: DB.getAnswers(s.id), recommendations: DB.getRecommendations(s.id).map(withShelves), running: isRunning(s.id), best_fit_ever: best };
 });
 route('DELETE', '/api/sessions/:id', async (req, p) => { DB.db.prepare('DELETE FROM sessions WHERE id = ?').run(Number(p.id)); return { ok: true }; });
 route('GET', '/api/sessions/:id/next', async (req, p) => nextQuestion(Number(p.id)));
@@ -119,9 +121,16 @@ route('POST', '/api/sessions/:id/recommend', async (req, p) => {
   const id = Number(p.id);
   if (!DB.getSession(id)) throw httpError(404, 'no such session');
   if (isRunning(id)) return { started: false, running: true };
-  runRecommendation(id).catch((e) => console.error('[recommend]', e));
+  const b = await body(req).catch(() => ({}));
+  runRecommendation(id, { instant: !!b.instant }).catch((e) => console.error('[recommend]', e));
   return { started: true };
 });
+// How many researched books a fast pick could choose from.
+route('GET', '/api/researched', async () => ({ count: researchedCount() }));
+// Taste trainer: a set of well-known books to react to, and her answers (stored as reading history, source "trainer").
+route('POST', '/api/trainer/list', async () => ({ books: await trainerList(18), answered: listTrainer().length }));
+route('GET', '/api/trainer', async () => ({ answered: listTrainer().length }));
+route('POST', '/api/trainer/answer', async (req) => { const b = await body(req); return trainerAnswer({ title: String(b.title || '').slice(0, 300), author: String(b.author || '').slice(0, 200), verdict: b.verdict, as: b.as || null }); });
 // While the research runs: keep a candidate on the final list whatever the ranking says (or let it go again).
 route('POST', '/api/sessions/:id/keep', async (req, p) => { const b = await body(req); return { kept: keepBook(Number(p.id), Number(b.bookId), b.keep !== false) }; });
 route('GET', '/api/sessions/:id/kept', async (req, p) => ({ kept: keptBooks(Number(p.id)) }));

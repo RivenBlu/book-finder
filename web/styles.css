@@ -461,3 +461,33 @@ nav.more-right { -webkit-mask-image: linear-gradient(to right, #000 82%, transpa
 div.lbl { font-family: var(--ui); font-size: 14px; font-weight: 600; color: var(--ink-2); margin: 16px 0 6px; }
 .listdiv { margin: 28px 0 4px; padding-top: 18px; border-top: 2px solid var(--line-2); }
 .rowhead.static { cursor: default; }
+
+/* ---- dialogs, sliders, taste trainer ---- */
+.dlg { border: 1px solid var(--line-2); border-radius: 16px; padding: 24px; background: var(--surface); color: var(--ink); box-shadow: var(--shadow); width: min(92vw, 480px); font-family: var(--reading); }
+.dlg::backdrop { background: rgba(27, 26, 25, .45); }
+.dlg .t { font-family: var(--display); font-size: 22px; font-weight: 600; line-height: 1.25; }
+.dlg .b { margin-top: 10px; font-size: 16px; color: var(--ink-2); white-space: pre-line; max-height: 50vh; overflow: auto; }
+.dlg textarea { margin-top: 14px; min-height: 76px; }
+.sliders { display: grid; gap: 10px; margin-top: 14px; max-width: 520px; }
+.sl { display: grid; grid-template-columns: minmax(0, 1fr) minmax(120px, 1.4fr) minmax(0, 1fr); gap: 12px; align-items: center; font-family: var(--ui); font-size: 14px; color: var(--ink-2); }
+.sl span:last-child { text-align: right; }
+.sl input { width: 100%; accent-color: var(--lamp); }
+.fitb .best { color: var(--lamp); font-weight: 600; }
+.chip[data-ci], .chip[data-v], .chip[data-as] { cursor: pointer; }
+.chip[data-ci]:hover, .chip[data-v]:hover, .chip[data-as]:hover { border-color: var(--ink-2); color: var(--ink); }
+.trgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 28px 20px; }
+.trcard { display: grid; gap: 6px; align-content: start; min-width: 0; }
+.trcard .cover { max-width: 140px; }
+.trcard .ttl { font-family: var(--reading); font-size: 17px; font-weight: 600; line-height: 1.25; margin-top: 6px; }
+.trcard .by { font-family: var(--ui); font-size: 13px; color: var(--ink-2); }
+.trbtns, .tras { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 2px; }
+.trbtns .chip, .tras .chip { font-size: 13px; height: 26px; padding: 0 9px; }
+.trcard.answered .cover { box-shadow: 0 0 0 2px var(--lamp), var(--shadow-cover); }
+@media (max-width: 520px) { .trgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px 14px; } }
+
+/* A sticky header inside a scrolling wrapper is offset inside the wrapper and covers the first row. */
+.tablewrap th { position: static; }
+.tras[hidden] { display: none; }
+.sl { grid-template-columns: 104px minmax(120px, 240px) minmax(0, 1fr); }
+.sl span:last-child { text-align: left; }
+.sl input[type=range] { width: 100%; padding: 0; border: 0; background: transparent; }

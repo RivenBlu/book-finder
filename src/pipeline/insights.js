@@ -2,7 +2,8 @@
 // enriching imported history with real data, and "which book by this author next".
 import * as DB from '../db.js';
 import { ask } from '../llm.js';
-import { REPORT_SCHEMA, REPORT_SYSTEM, AUTHOR_NEXT_SCHEMA, AUTHOR_NEXT_SYSTEM, DEBRIEF_FOLLOWUP_SCHEMA, DEBRIEF_FOLLOWUP_SYSTEM } from '../prompts.js';
+import { REPORT_SCHEMA, REPORT_SYSTEM, AUTHOR_NEXT_SCHEMA, AUTHOR_NEXT_SYSTEM, DEBRIEF_FOLLOWUP_SCHEMA, DEBRIEF_FOLLOWUP_SYSTEM, TRAINER_SCHEMA, TRAINER_SYSTEM } from '../prompts.js';
+import { searchOpenLibrary } from '../sources/openlibrary.js';
 import { enrichCandidate, digestBook } from './recommend.js';
 import { readerDna, traitProfile, historyDigest, debriefLine } from './context.js';
 import { sayVsDo, fingerprint, fingerprintCompact, counter, debriefPatterns } from './evidence.js';
@@ -189,3 +190,38 @@ export async function authorNext(bookId, { force = false } = {}) {
 }
 
 export { historyDigest };
+
+// ---------- taste trainer: learn from reactions to books she already knows ----------
+const TRAINER_AS = { treat: 'a treat, a guilty pleasure', comfort: 'a comfort read', serious: 'a serious read', thrill: 'a thrill' };
+function trainerSeen() { try { return JSON.parse(DB.getSetting('trainer_seen', '[]')) || []; } catch { return []; } }
+/** A fresh set of well-known books to react to, with covers from Open Library where it has them. */
+export async function trainerList(n = 18) {
+  const seen = trainerSeen();
+  const known = DB.knownBooks().keys.map((k) => `${k.title}${k.author ? ' - ' + k.author : ''}`);
+  const t = traitProfile(); const pick = (k) => t[k]?.value?.text || (t[k]?.value?.labels || []).join(', ') || undefined;
+  const reader = {
+    reader_dna: readerDna(), loved: pick('loved_books'), abandoned: pick('abandoned_books'), genres_reached_for: pick('genres_love'), genres_avoided: pick('genres_avoid'),
+    languages: pick('languages'), film_and_series_taste: pick('proxies'), recent_wishes: DB.recentAnswers('wish_now', 8).map((a) => a.free_text).filter(Boolean),
+    already_answered_in_the_trainer: listTrainer().slice(0, 60).map((h) => `${h.title}: ${h.my_review || ''}`),
+  };
+  const { data } = await ask({ system: TRAINER_SYSTEM, schema: TRAINER_SCHEMA, tier: DB.getSetting('tier_adaptive', 'smart'), effort: 'low',
+    prompt: `READER (JSON):\n${JSON.stringify(reader, null, 1)}\n\nLEAVE OUT (she has read, saved or been shown these, or was already asked about them):\n${[...new Set([...known, ...seen])].slice(0, 500).join('\n') || '(nothing)'}\n\nChoose ${n} books for her to react to.` });
+  const books = (data.books || []).slice(0, n);
+  await Promise.all(books.map(async (b) => {
+    try { const ol = (await searchOpenLibrary(`${b.title} ${b.author}`, { limit: 1 }))[0]; if (ol?.cover) b.cover = ol.cover.replace('-L.jpg', '-M.jpg'); } catch {}
+  }));
+  DB.setSetting('trainer_seen', JSON.stringify([...new Set([...seen, ...books.map((b) => `${b.title} - ${b.author}`)])].slice(-600)));
+  return books;
+}
+/** verdict: loved | fine | hated | unread. as (for loved/fine): treat | comfort | serious | thrill. */
+export function trainerAnswer({ title, author = '', verdict, as = null }) {
+  if (!title) throw new Error('no title');
+  if (verdict === 'unread') { DB.db.prepare("DELETE FROM reading_history WHERE title = ? AND author = ? AND source = 'trainer'").run(title, author || ''); return { ok: true }; }
+  const rating = { loved: 5, fine: 3, hated: 1 }[verdict];
+  if (!rating) throw new Error('unknown answer');
+  const how = TRAINER_AS[as] ? ` as ${TRAINER_AS[as]}` : '';
+  const review = verdict === 'loved' ? `Loved it${how}. (Her answer in the taste trainer.)` : verdict === 'fine' ? `It was fine${how}, nothing more. (Her answer in the taste trainer.)` : 'Disliked it. (Her answer in the taste trainer.)';
+  DB.addHistory({ title, author, myRating: rating, myReview: review, status: 'read', tags: as ? [as] : [], source: 'trainer' });
+  return { ok: true };
+}
+export function listTrainer() { return DB.listHistory({ limit: 5000 }).filter((h) => h.source === 'trainer'); }

@@ -16,7 +16,7 @@ const DB = await import('../src/db.js');
 const { recordOutcome } = await import('../src/pipeline/insights.js');
 const { sayVsDo, fingerprint } = await import('../src/pipeline/evidence.js');
 const { exportAll, importAll } = await import('../src/ops.js');
-const { titleMatch, applySecondOpinion, isKnown } = await import('../src/pipeline/recommend.js');
+const { titleMatch, applySecondOpinion, isKnown, mustsAreWishes } = await import('../src/pipeline/recommend.js');
 
 const fx = (f) => join(DIR, 'fixtures', f);
 
@@ -98,7 +98,10 @@ test('loop closer: outcomes shelve the book, write facts and feed say-versus-do 
   const b2 = DB.upsertBook({ goodreadsId: '12', title: 'Quiet Two', author: 'Q', pages: 500, reviews: [{ text: 'a', likes: 0 }] }); DB.setReviewDigest(b2, { ...digest, appeal: { ...digest.appeal, pace: 'fast-paced' } });
   const r1 = DB.addRecommendation({ sessionId: sid, bookId: b1, rank: 1, slot: 'safe_bet', fit: { kind: 'pick', confidence: 0.8 } });
   const r2 = DB.addRecommendation({ sessionId: sid, bookId: b2, rank: 2, slot: 'stretch', fit: { kind: 'pick', confidence: 0.5 } });
-  DB.db.prepare("UPDATE recommendations SET created_at = '2026-01-01T00:00:00.000Z'").run();
+  // Untouched picks are asked about for three weeks, then lapse quietly.
+  DB.db.prepare("UPDATE recommendations SET created_at = '2020-01-01T00:00:00.000Z'").run();
+  assert.equal(DB.pendingFollowups().length, 0, 'old untouched picks are no longer asked about');
+  DB.db.prepare('UPDATE recommendations SET created_at = ?').run(new Date(Date.now() - 3 * 864e5).toISOString());
   assert.equal(DB.pendingFollowups().length, 2);
   recordOutcome(r1, { outcome: 'finished', rating: 5, reason: 'lovely' });
   recordOutcome(r2, { outcome: 'dropped', page: 60, reason: 'too fast' });
@@ -132,7 +135,7 @@ test('after-reading debrief: plan branches on outcome and risk, save shelves and
   assert.ok(!plan4.questions.some((q) => q.id === 'warning'));
   assert.match(plan4.questions.find((q) => q.id === 'bothered').text, /stop/);
   // The follow-up screen carries what the book was.
-  DB.db.prepare("UPDATE recommendations SET created_at = '2026-01-01T00:00:00.000Z' WHERE id = ?").run(r3);
+  DB.db.prepare('UPDATE recommendations SET created_at = ? WHERE id = ?').run(new Date(Date.now() - 3 * 864e5).toISOString(), r3);
   const fu = DB.pendingFollowups().find((x) => x.id === r3);
   assert.ok(fu && fu.description === 'A house remembers.' && fu.review_digest.one_line === 'z' && fu.fit.why_now === 'because');
   // Save a debrief for the pick: outcome recorded, shelved, verdict on the shelf item, fact, history, context.
@@ -286,4 +289,30 @@ test('check-in: several moods at once read as one line; the craving question off
   nx = nextQuestion(s2);
   assert.equal(nx.question.id, 'wish_now', 'the craving is asked right after mood and need');
   assert.equal(nx.question.suggestions[0].text, 'vampire trash, the good kind');
+});
+
+test('taste trainer answers become reading history, are never recommended, and "not read" takes an answer back', async () => {
+  const { trainerAnswer, listTrainer } = await import('../src/pipeline/insights.js');
+  trainerAnswer({ title: 'Trainer Book', author: 'T. Author', verdict: 'loved', as: 'treat' });
+  trainerAnswer({ title: 'Other Book', author: 'O. Author', verdict: 'hated' });
+  const rows = listTrainer();
+  assert.equal(rows.find((r) => r.title === 'Trainer Book').my_rating, 5);
+  assert.match(rows.find((r) => r.title === 'Trainer Book').my_review, /guilty pleasure/);
+  assert.equal(rows.find((r) => r.title === 'Other Book').my_rating, 1);
+  assert.ok(isKnown({ id: 999999, title: 'Trainer Book', author: 'T. Author' }, DB.knownBooks()), 'a book she rated in the trainer is known, so never suggested');
+  trainerAnswer({ title: 'Other Book', author: 'O. Author', verdict: 'unread' });
+  assert.ok(!listTrainer().some((r) => r.title === 'Other Book'));
+});
+
+test('a wish is not a must-have unless she says so', () => {
+  const a = DB.createSession('quick');
+  DB.addAnswer({ sessionId: a, qId: 'wish_now', layer: 'checkin', question: 'q', options: null, answer: null, freeText: 'adult high fantasy with a smart lead, well written' });
+  DB.addAnswer({ sessionId: a, qId: 'musts_now', layer: 'checkin', question: 'q', options: null, answer: null, freeText: '' });
+  assert.equal(mustsAreWishes(a), true);
+  const b = DB.createSession('quick');
+  DB.addAnswer({ sessionId: b, qId: 'wish_now', layer: 'checkin', question: 'q', options: null, answer: null, freeText: 'fantasy, and it must have romance' });
+  assert.equal(mustsAreWishes(b), false);
+  const c = DB.createSession('quick');
+  DB.addAnswer({ sessionId: c, qId: 'musts_now', layer: 'checkin', question: 'q', options: null, answer: null, freeText: 'vampires; romance' });
+  assert.equal(mustsAreWishes(c), false);
 });

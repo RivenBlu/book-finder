@@ -65,7 +65,20 @@ function logger(sessionId) {
   };
 }
 
-export async function runRecommendation(sessionId) {
+// Books already researched (real page, reviews, digest) that the reader has not read, shelved or been shown:
+// candidates earlier searches set aside. A fast pick chooses among them without new research.
+function researchedPool(known, limit = 45) {
+  const out = [];
+  for (const r of db.prepare('SELECT id FROM books WHERE review_digest IS NOT NULL ORDER BY fetched_at DESC').all()) {
+    const b = getBook(r.id);
+    if (!b || !b.reviews?.length || (known && isKnown(b, known))) continue;
+    out.push(b); if (out.length >= limit) break;
+  }
+  return out;
+}
+export function researchedCount() { return researchedPool(knownBooks(), 200).length; }
+
+export async function runRecommendation(sessionId, { instant = false } = {}) {
   if (isRunning(sessionId)) throw new Error('already running');
   const log = logger(sessionId);
   const session = getSession(sessionId);
@@ -86,14 +99,27 @@ export async function runRecommendation(sessionId) {
       system: path ? PATH_BRIEF_SYSTEM : BRIEF_SYSTEM, schema: path ? PATH_BRIEF_SCHEMA : BRIEF_SCHEMA, tier: getSetting('tier_brief', 'smart'), effort: 'high',
       prompt: `READER CONTEXT (JSON):\n${JSON.stringify(ctx, null, 1)}\n\n${path ? 'Design the reading path brief.' : gift ? 'Write the recommendation brief for the gift recipient.' : 'Write the recommendation brief.'}`,
     })).data;
+    // Code-level guard for the rule the brief is given in words: a must-have exists only when she marked something as
+    // required. With an empty must-have answer and no "must" wording anywhere in today's free text, a wish stays a wish.
+    if (!gift && mustsAreWishes(sessionId) && (brief.must_haves || []).length) { brief.soft_wishes = brief.must_haves; brief.must_haves = []; }
     if (path) brief.slots = brief.stages.map((s) => `${s.id}: ${s.job}; ${s.from_state} -> ${s.to_state}; ${s.appeal_targets.pace}, ${s.appeal_targets.tone.join('/')}; up to ${s.max_pages} pages`);
     updateSession(sessionId, { brief, summary: brief.reader_now });
     log('brief', 'Brief ready', { brief });
 
     // 2. Long list
     const excludes = gift ? [] : excludeList();
-    log('candidates', 'Thinking about candidates (this is the slow, smart step)...');
     const web = getSetting('candidates_web', 'true') === 'true';
+    const polish = (brief.constraints?.languages || []).some((l) => /^pl|polish|polski/i.test(l));
+    const known = gift ? null : knownBooks();
+    const found = [];
+    if (instant) {
+      // Fast pick: no new long list and no fetching; the books earlier searches researched and set aside are the candidates.
+      const pool = researchedPool(known);
+      if (pool.length < 5) throw new Error('Too few researched books for a fast pick yet. Run a full search first.');
+      log('candidates', `Choosing among ${pool.length} books I have already researched`, { candidates: pool.map((b) => `${b.title} - ${b.author}`) });
+      for (const b of pool) { found.push({ candidate: { slot: '', why: '', reread: false }, book: b }); log('enrich', `Ready: ${b.title}`, { book: card(b) }); }
+    } else {
+    log('candidates', 'Thinking about candidates (this is the slow, smart step)...');
     const longlist = (await ask({
       system: CANDIDATES_SYSTEM, schema: CANDIDATES_SCHEMA, tier: getSetting('tier_candidates', 'best'), effort: 'high', web, maxTurns: 18,
       prompt: `BRIEF (JSON):\n${JSON.stringify(brief, null, 1)}\n\nREADER DNA:\n${gift ? '(gift: not applicable)' : ctx.reader_dna || '(none yet)'}\n\nDO NOT RECOMMEND (already read, shelved, recommended or rejected):\n${excludes.join('\n') || '(nothing)'}\n\nPropose the long list.`,
@@ -102,7 +128,6 @@ export async function runRecommendation(sessionId) {
 
     // 3. Enrich with real data (Goodreads page per book, cached)
     log('enrich', 'Fetching real descriptions, ratings and reviews...');
-    const polish = (brief.constraints?.languages || []).some((l) => /^pl|polish|polski/i.test(l));
     const enriched = await mapLimit(longlist, 3, async (c) => {
       try {
         const book = await enrichCandidate(c, { polish });
@@ -114,10 +139,8 @@ export async function runRecommendation(sessionId) {
     // Code-level guards: the same book twice (omnibus vs. book 1, translated title), books already read, shelved,
     // recommended or rejected (the model sometimes forgets the list or proposes a known book under another title),
     // and books far over the page limit.
-    const known = gift ? null : knownBooks();
     const maxPages = !path && brief.constraints?.max_pages > 0 ? brief.constraints.max_pages : 0;
     const seenBooks = new Set();
-    const found = [];
     const skipped = { known: 0, long: 0 };
     for (const x of enriched.filter(Boolean)) {
       if (seenBooks.has(x.book.id)) continue;
@@ -130,6 +153,7 @@ export async function runRecommendation(sessionId) {
       const unverified = enriched.filter((x) => !x).length;
       const why = [unverified ? `${unverified} could not be found on Goodreads (connection or throttling)` : '', skipped.known ? `${skipped.known} you already know` : '', skipped.long ? `${skipped.long} were over your page limit` : ''].filter(Boolean).join(', ');
       throw new Error(`Too few usable candidates (${found.length})${why ? ': ' + why : ''}. Try again; each run thinks of a new long list.`);
+    }
     }
 
     // 4. Review digests (cached per book; refreshed when stale)
@@ -177,7 +201,7 @@ export async function runRecommendation(sessionId) {
       if (verify) {
         slate = await secondOpinion(ranked, found, sessionId, log, verdicts);
         // 6b. Must-haves are rules. When fewer than two books pass them, look once more, narrowly, before saying so.
-        if ((brief.must_haves || []).length && slate.picks.length < 2) {
+        if (!instant && (brief.must_haves || []).length && slate.picks.length < 2) {
           const added = await rescueRound({ brief, found, verdicts, sessionId, log, polish, excludes, known, web }).catch((e) => { log('rescue', `The second search failed: ${e.message}`); return []; });
           if (added.length) slate = applySecondOpinion({ ...ranked, runners_up: [...(ranked.runners_up || []), ...added.map((i) => ({ candidate_index: i, one_line: '' }))] }, verdicts, found);
         }
@@ -226,6 +250,13 @@ export async function runRecommendation(sessionId) {
     if (failed && entry) entry.failed = true;
     setTimeout(() => { if (running.get(sessionId) === entry) running.delete(sessionId); }, failed ? 20_000 : 60_000);
   }
+}
+
+// True when nothing in this session was framed as a requirement: no must-have answer, and no "must / has to / only" in her own words.
+export function mustsAreWishes(sessionId) {
+  const answers = getSession(sessionId) ? db.prepare('SELECT q_id, free_text, skipped FROM answers WHERE session_id = ?').all(sessionId) : [];
+  if (answers.some((a) => ['musts_now', 'must_example'].includes(a.q_id) && !a.skipped && (a.free_text || '').trim())) return false;
+  return !answers.some((a) => /\b(must|has to|have to|needs? to|non-negotiable|only if|musi|koniecznie|tylko)\b/i.test(a.free_text || ''));
 }
 
 // Is this book one the reader already knows (read, shelved, recommended before)? By id, Goodreads id, or close title + author.

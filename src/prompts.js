@@ -459,6 +459,19 @@ export const AUTHOR_NEXT_SCHEMA = {
 export const AUTHOR_NEXT_SYSTEM = `You know an author's complete bibliography and how each book is received by readers. Given one book the reader has a relationship with (the data on it, and whether they loved, dropped or rejected it) and the reader's profile, rank the author's OTHER books for THIS reader, best fit first. Real books only; if unsure a title exists, leave it out. Be honest about the author's weaker or very different books. Exclude books the reader already read.
 ${APPEAL_VOCAB}`;
 
+// ---------- Taste trainer: books to react to ----------
+export const TRAINER_SCHEMA = {
+  type: 'object',
+  properties: {
+    books: {
+      type: 'array', minItems: 12, maxItems: 24,
+      items: { type: 'object', properties: { title: { type: 'string' }, author: { type: 'string' }, year: { type: 'integer' }, kind: { type: 'string', description: 'Two or three plain words: "fantasy romance", "British classic", "Polish school reading", "crime thriller".' } }, required: ['title', 'author', 'year', 'kind'], additionalProperties: false },
+    },
+  },
+  required: ['books'], additionalProperties: false,
+};
+export const TRAINER_SYSTEM = `You are a readers' advisor who wants to learn one reader's taste from her reactions to books she already knows. Choose widely read books she has very likely read or formed an opinion about, so that "loved / fine / hated" from her teaches the most. Cover her territory and its edges, and the different moods she reads in (a serious read, comfort, a guilty pleasure, a thrill): the famous titles in the kinds of books she reaches for and recently asked for, the big names any reader of those kinds is expected to know, a few classics (including school reading from her country when she reads Polish), and a few popular books she may well dislike, because a "hated" is worth more than a "loved". Prefer books where her answer would settle something still unknown about her (how dark, how romantic, how literary, how young the voice may be). Real books only, exact titles, one per author. Never a book from the lists you are told to leave out.`;
+
 // ---------- Quarterly reading report narrative ----------
 export const REPORT_SCHEMA = {
   type: 'object',
