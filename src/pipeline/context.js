@@ -58,7 +58,9 @@ export function shelvesDigest() {
 }
 
 export function feedbackDigest() {
-  return pastRecommendations(80).filter((r) => r.feedback).map((r) => `${r.title} - ${r.author}: ${r.feedback}${r.feedback_note ? ' (' + r.feedback_note + ')' : ''}`);
+  // Two separate things per pick: what became of the book, and her take on the suggestion itself.
+  const take = (r) => (r.reaction === 'love' ? 'she called this a great suggestion' : r.reaction === 'hate' ? `she called this a bad suggestion${r.reaction_note ? ': ' + r.reaction_note : ''}` : '');
+  return pastRecommendations(80).filter((r) => r.feedback || r.reaction).map((r) => `${r.title} - ${r.author}: ${[r.feedback ? `${r.feedback}${r.feedback_note ? ' (' + r.feedback_note + ')' : ''}` : '', take(r)].filter(Boolean).join('; ')}`);
 }
 
 export function excludeList() {

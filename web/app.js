@@ -450,11 +450,12 @@ async function debriefPage(bookId, recId = '0', outcome = 'ask') {
 }
 const goDebrief = (bookId, recId, outcome = 'ask') => { try { sessionStorage.setItem('bf-return', location.hash.slice(1) || 'home'); } catch {} location.hash = `debrief/${bookId}/${recId || 0}/${outcome}`; };
 function outcomeChip(r) {
-  if (!r.feedback) return raw('<span class="chip">no outcome yet</span>');
+  const take = r.reaction === 'love' ? raw('<span class="chip lamp">loved the suggestion</span>') : r.reaction === 'hate' ? raw('<span class="chip amber">hated the suggestion</span>') : '';
+  if (!r.feedback) return take || raw('<span class="chip">no outcome yet</span>');
   const o = r.outcome || {};
   const txt = `${labelFeedback(r.feedback)}${o.rating ? ` · ${'★'.repeat(o.rating)}` : ''}${o.page ? ` · p. ${o.page}` : ''}`;
   const cls = r.feedback === 'finished' ? 'lamp' : r.feedback === 'dropped' || r.feedback === 'not_for_me' ? 'amber' : '';
-  return raw(h`<span class="chip ${cls}" title="${r.feedback_note || ''}">${txt}</span>${r.debrief_id ? raw('<span class="chip lamp" title="Debriefed">debriefed ✓</span>') : ''}`);
+  return raw(h`<span class="chip ${cls}" title="${r.feedback_note || ''}">${txt}</span>${r.debrief_id ? raw('<span class="chip lamp" title="Debriefed">debriefed ✓</span>') : ''}${take}`);
 }
 
 // ---------- past picks: every report, every book, with what became of it ----------
@@ -733,12 +734,19 @@ let bestFitEver = null;
 const REMOVED = 'Removed from the list';
 // One line of answers under every book in a report: where to keep it, what you think of it, or take it off the list.
 function rowActs(r) {
-  return raw(h`<button class="linkbtn" data-shelf="Up next" data-rec="${r.id}">Save to Up next</button><button class="linkbtn" data-shelf="Maybe" data-rec="${r.id}">Keep as maybe</button><button class="linkbtn" data-react="love" data-rec="${r.id}">Love it</button><button class="linkbtn" data-react="hate" data-rec="${r.id}">Hate it</button><button class="linkbtn" data-react="remove" data-rec="${r.id}">Remove</button><select class="linksel" data-more="${r.id}" data-title="${r.title}" aria-label="More answers"><option value="">More…</option><option value="more">More like this</option><option value="less">Less like this</option><option value="read">I have read it</option><option value="notforme">Not for me</option></select>`);
+  const place = r.feedback === 'saved' ? 'up_next' : r.feedback === 'maybe' ? 'maybe' : '';
+  const tog = (attr, val, label, tip, on) => raw(h`<button class="tog" ${attr}="${val}" data-rec="${r.id}" aria-pressed="${on ? 'true' : 'false'}" title="${tip}">${label}</button>`);
+  return raw(h`<span class="actgrp"><span class="actlbl">Keep</span>${tog('data-place', 'up_next', 'Up next', 'Puts the book on your Up next shelf. Press again to take it off.', place === 'up_next')}${tog('data-place', 'maybe', 'Maybe', 'Puts the book on your Maybe shelf: curious, not sure yet. Press again to take it off.', place === 'maybe')}${tog('data-place', 'removed', 'Remove', 'Takes the book off this list. It says nothing about your taste.', false)}</span>
+    <span class="actgrp"><span class="actlbl">Your take</span>${tog('data-react', 'love', 'Love it', 'A great suggestion: I look for more like it. This does not save the book; use Keep for that.', r.reaction === 'love')}${tog('data-react', 'hate', 'Hate it', 'A bad suggestion: I steer away from books like it. This does not remove the book; use Remove for that.', r.reaction === 'hate')}</span>
+    <select class="linksel" data-more="${r.id}" data-title="${r.title}" aria-label="More answers"><option value="">More…</option><option value="read">I have read it</option><option value="more">Re-rank this list: more like this</option><option value="less">Re-rank this list: less like this</option></select>`);
 }
+// What the small text after the answers says: only what the buttons themselves do not already show.
+const rowNote = (r) => (r.feedback && !['saved', 'maybe'].includes(r.feedback) && r.feedback_note !== REMOVED ? labelFeedback(r.feedback) : '');
+const rowGone = (r) => raw(h`<div class="rowgone noprint" hidden><span><b>${r.title}</b> is off this list.</span><button class="linkbtn" data-place="" data-rec="${r.id}">Put it back</button></div>`);
 function pickRow(r, i, shelves, sessionId, giftFor) {
   if (r.feedback_note === REMOVED) return raw('');
   const f = r.fit;
-  return raw(h`<div class="rowpick" data-row="${r.id}">
+  return raw(h`<div class="rowpick ${r.reaction === 'hate' ? 'faded' : ''}" data-row="${r.id}">
     <div class="rowhead" data-toggle="${r.id}" role="button" tabindex="0" aria-expanded="false">
       <span class="rn tabular">${i + 1}</span>
       ${coverImg(r.cover, r.title, 'cover small')}
@@ -747,7 +755,7 @@ function pickRow(r, i, shelves, sessionId, giftFor) {
         ${f.check?.missing?.length ? raw(h`<div class="cap" style="color:var(--danger);margin-top:6px">Misses a must-have: ${f.check.missing.join('; ')}</div>`) : ''}</div>
       ${fitBlock(f)}
     </div>
-    <div class="rowacts noprint"><button class="linkbtn" data-toggle="${r.id}" data-label>Read the full case</button>${giftFor ? '' : raw(h`${rowActs(r)}`)}<span class="saved" data-saved="${r.id}">${r.feedback ? labelFeedback(r.feedback) : ''}</span></div>
+    <div class="rowacts noprint"><button class="linkbtn" data-toggle="${r.id}" data-label>Read the full case</button>${giftFor ? '' : raw(h`${rowActs(r)}`)}<span class="saved" data-saved="${r.id}">${giftFor ? (r.feedback ? labelFeedback(r.feedback) : '') : rowNote(r)}</span></div>${giftFor ? '' : rowGone(r)}
     <div class="rowfull" id="full-${r.id}" hidden>${pickCard(r, shelves, sessionId, giftFor)}</div>
   </div>`);
 }
@@ -755,7 +763,7 @@ function pickRow(r, i, shelves, sessionId, giftFor) {
 function maybeRow(r, i) {
   if (r.feedback_note === REMOVED) return raw('');
   const c = r.fit.check;
-  return raw(h`<div class="rowpick" data-row="${r.id}">
+  return raw(h`<div class="rowpick ${r.reaction === 'hate' ? 'faded' : ''}" data-row="${r.id}">
     <div class="rowhead static">
       <span class="rn tabular">${i + 1}</span>
       <a href="#book/${r.book_id}">${coverImg(r.cover, r.title, 'cover small')}</a>
@@ -763,7 +771,7 @@ function maybeRow(r, i) {
         <div class="hl2">${c.headline || r.fit.one_line || ''}</div>${strip(c.glance, r.review_digest)}</div>
       ${fitBlock(r.fit)}
     </div>
-    <div class="rowacts noprint"><a href="#book/${r.book_id}">Read the verdict</a>${rowActs(r)}<span class="saved" data-saved="${r.id}">${r.feedback ? labelFeedback(r.feedback) : ''}</span></div>
+    <div class="rowacts noprint"><a href="#book/${r.book_id}">Read the verdict</a>${rowActs(r)}<span class="saved" data-saved="${r.id}">${rowNote(r)}</span></div>${rowGone(r)}
   </div>`);
 }
 async function results(id) {
@@ -1091,27 +1099,47 @@ function wireShelfButtons() {
     if (b.dataset.ask) { note = await askLine(b.dataset.ask, b.dataset.prefill || ''); if (note === null) return; }
     const fb = shelf === 'Not for me' ? 'not_for_me' : shelf === 'Finished' ? 'already_read' : shelf === 'Reading now' ? 'started' : shelf === 'Maybe' ? 'maybe' : 'saved';
     await post(`/api/recommendations/${b.dataset.rec}/feedback`, { feedback: fb, note, shelf });
-    const el = app.querySelector(`[data-saved="${b.dataset.rec}"]`); if (el) el.textContent = `✓ ${shelf}`;
+    const rowEl = app.querySelector(`[data-row="${b.dataset.rec}"]`);
+    rowEl?.querySelectorAll('.tog[data-place]').forEach((x) => x.setAttribute('aria-pressed', String((shelf === 'Up next' && x.dataset.place === 'up_next') || (shelf === 'Maybe' && x.dataset.place === 'maybe'))));
+    const el = app.querySelector(`[data-saved="${b.dataset.rec}"]`); if (el) el.textContent = rowEl && ['Up next', 'Maybe'].includes(shelf) ? '' : `✓ ${shelf}`;
     toast(`Saved to ${shelf}`);
   });
   const mark = (rec, text) => { const el = app.querySelector(`[data-saved="${rec}"]`); if (el) el.textContent = text; };
-  const renumber = () => app.querySelectorAll('.rowpick .rn').forEach((x, i) => { x.textContent = i + 1; });
+  const renumber = () => [...app.querySelectorAll('.rowpick:not(.removed) .rn')].forEach((x, i) => { x.textContent = i + 1; });
   renumber();
-  const react = async (rec, kind) => {
-    const fb = (payload) => post(`/api/recommendations/${rec}/feedback`, payload);
-    if (kind === 'love') { await fb({ feedback: 'saved', note: 'Loved this suggestion', shelf: 'Up next' }); mark(rec, '✓ Loved · on Up next'); toast('Noted as a great pick, and saved to Up next'); }
-    else if (kind === 'hate' || kind === 'notforme') {
-      const why = await askLine(kind === 'hate' ? 'What do you hate about it? One line teaches the tool.' : 'Why not? One line teaches the tool.'); if (why === null) return;
-      await fb({ feedback: 'not_for_me', note: kind === 'hate' ? `Hated the suggestion${why ? ': ' + why : ''}` : why, shelf: 'Not for me' });
-      mark(rec, kind === 'hate' ? '✓ Hated · I will steer away from this' : '✓ Not for me'); app.querySelector(`[data-row="${rec}"]`)?.classList.add('faded'); toast('Noted. It will not come back.');
-    } else if (kind === 'remove') { await fb({ feedback: 'not_now', note: REMOVED }); app.querySelector(`[data-row="${rec}"]`)?.remove(); renumber(); toast('Removed from this list. No judgement recorded.'); }
-    else if (kind === 'read') { const note = await askLine('Already read it. What did you think?'); if (note === null) return; await fb({ feedback: 'already_read', note, shelf: 'Finished' }); mark(rec, '✓ Already read'); toast('Saved to Finished'); }
+  // Two separate answers per book. "Keep" says where the book goes; "Your take" says what you think of the suggestion.
+  // Neither does the other's job, and pressing a lit answer again takes it back.
+  const paint = (row) => {
+    const el = app.querySelector(`[data-row="${row.id}"]`); if (!el) return;
+    const place = row.feedback === 'saved' ? 'up_next' : row.feedback === 'maybe' ? 'maybe' : '';
+    el.querySelectorAll('.tog[data-place]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.place === place)));
+    el.querySelectorAll('.tog[data-react]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.react === row.reaction)));
+    const gone = row.feedback_note === REMOVED;
+    el.classList.toggle('removed', gone); el.classList.toggle('faded', row.reaction === 'hate');
+    const g = el.querySelector('.rowgone'); if (g) g.hidden = !gone;
+    mark(row.id, rowNote(row)); renumber();
   };
-  app.querySelectorAll('[data-react]').forEach((b) => b.onclick = () => react(b.dataset.rec, b.dataset.react));
-  app.querySelectorAll('[data-more]').forEach((sel) => sel.onchange = () => {
+  app.querySelectorAll('[data-place]').forEach((b) => b.onclick = async () => {
+    const want = b.getAttribute('aria-pressed') === 'true' ? null : b.dataset.place || null;
+    const row = await post(`/api/recommendations/${b.dataset.rec}/place`, { place: want }); paint(row);
+    const kept = app.querySelector(`[data-row="${row.id}"] .tog[data-react="hate"][aria-pressed="true"]`);
+    toast(want === 'up_next' ? 'On your Up next shelf' : want === 'maybe' ? 'On your Maybe shelf' : want === 'removed' ? 'Off this list' : b.dataset.place === 'up_next' ? 'Taken off Up next' : b.dataset.place === 'maybe' ? 'Taken off Maybe' : 'Back on the list');
+    if (want && want !== 'removed' && kept) toast('Saved, though you marked it a bad suggestion. Both are kept as you set them.');
+  });
+  app.querySelectorAll('.tog[data-react]').forEach((b) => b.onclick = async () => {
+    const on = b.getAttribute('aria-pressed') === 'true'; const kind = b.dataset.react; let note = null;
+    if (!on && kind === 'hate') { note = await askLine('What is wrong with this suggestion? One line helps me steer away. You can leave it empty.'); if (note === null) return; }
+    const row = await post(`/api/recommendations/${b.dataset.rec}/reaction`, { reaction: on ? null : kind, note }); paint(row);
+    const placed = ['saved', 'maybe'].includes(row.feedback);
+    toast(on ? 'Taken back' : kind === 'love' ? (placed ? 'Noted: a great suggestion. More like this in future.' : 'Noted: a great suggestion. To keep the book, press Up next or Maybe.') : (row.feedback_note === REMOVED ? 'Noted: a bad suggestion. I will steer away from books like this.' : 'Noted: a bad suggestion. It stays on the list until you press Remove.'));
+  });
+  app.querySelectorAll('[data-more]').forEach((sel) => sel.onchange = async () => {
     const v = sel.value; sel.value = ''; if (!v) return;
-    if (v === 'more' || v === 'less') { app.onBfNudge?.(`${v} like ${sel.dataset.title}`); }
-    else react(sel.dataset.more, v);
+    if (v === 'more' || v === 'less') return app.onBfNudge?.(`${v} like ${sel.dataset.title}`);
+    const note = await askLine('Already read it. What did you think?'); if (note === null) return;
+    await post(`/api/recommendations/${sel.dataset.more}/feedback`, { feedback: 'already_read', note, shelf: 'Finished' });
+    const el = app.querySelector(`[data-row="${sel.dataset.more}"]`); el?.querySelectorAll('.tog[data-place]').forEach((x) => x.setAttribute('aria-pressed', 'false'));
+    mark(sel.dataset.more, 'Already read'); toast('Saved to Finished');
   });
   app.querySelectorAll('[data-custom]').forEach((sel) => sel.onchange = async () => {
     let name = sel.value; if (!name) return;

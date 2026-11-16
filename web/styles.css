@@ -554,3 +554,16 @@ nav { font-size: 16px; }
 .rowpick.faded > .rowhead { opacity: .45; }
 .rowacts { margin-left: 118px; }
 @media (max-width: 640px) { .rowacts { margin-left: 0; } }
+
+/* Report rows, two answers per book: where it is kept, and what she thinks of the suggestion. */
+.rowacts { gap: 10px 22px; }
+.actgrp { display: inline-flex; align-items: center; gap: 6px; }
+.actlbl { font-size: 12.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); margin-right: 2px; }
+.tog { font-family: var(--ui); font-size: 14.5px; font-weight: 500; line-height: 1; height: 30px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink); cursor: pointer; white-space: nowrap; }
+.tog:hover { border-color: var(--ink-2); }
+.tog[aria-pressed="true"] { background: var(--lamp); border-color: var(--lamp); color: var(--lamp-ink); }
+.tog[aria-pressed="true"]::before { content: "✓ "; }
+.tog[data-react="hate"][aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.rowpick.removed > :not(.rowgone) { display: none; }
+.rowgone { display: flex; gap: 14px; align-items: center; padding: 4px 0 4px 34px; font-family: var(--ui); font-size: 15px; color: var(--ink-2); }
+.rowgone[hidden] { display: none; }

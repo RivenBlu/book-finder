@@ -457,7 +457,10 @@ export async function enrichCandidate(c, { polish = false } = {}) {
   for (const r of results) {
     const t = titleMatch(r.title, c.title);
     const a = r.author && ln && r.author.toLowerCase().includes(ln) ? 1 : 0;
-    const score = t * 0.7 + a * 0.3 + Math.min((r.ratingsCount || 0) / 200000, 0.1);
+    // Goodreads lists stray one-rating duplicates ("[Tigana] [Author: Kay, Guy Gavriel] [February, 2011]" by "Unknown Author").
+    // They match the search words well and carry no reviews, so a real edition must win over them.
+    const junk = /^\[|\[author:/i.test(r.title) || /unknown author/i.test(r.author || '') || (r.ratingsCount != null && r.ratingsCount < 20 && results.some((x) => (x.ratingsCount || 0) >= 500 && titleMatch(x.title, c.title) > 0.6));
+    const score = t * 0.7 + a * 0.3 + Math.min((r.ratingsCount || 0) / 200000, 0.1) - (junk ? 0.5 : 0);
     if (score > bestScore) { bestScore = score; best = r; }
   }
   if (!best || bestScore < 0.55) return null;

@@ -329,3 +329,28 @@ test('follow-up answers from earlier interviews are remembered, and the current 
   assert.ok(!seen.some((f) => f.asked === 'How dark?'));
   assert.ok(ctxOf(now).earlier_followups.some((f) => f.asked === 'What heat level?'));
 });
+
+test('a pick has two separate answers: where it is kept and what she thinks of it; each can be taken back', async () => {
+  const { feedbackDigest } = await import('../src/pipeline/context.js');
+  const sid = DB.createSession('quick');
+  const b = DB.upsertBook({ goodreadsId: '9001', title: 'Two Answers', author: 'T. Wo', reviews: [{ text: 'x', likes: 0 }] });
+  const r = DB.addRecommendation({ sessionId: sid, bookId: b, rank: 1, slot: 'safe_bet', fit: { kind: 'pick' } });
+  const on = () => DB.shelvesForBook(b).map((s) => s.name);
+  // loving a suggestion does not save the book
+  DB.setRecommendationReaction(r, 'love');
+  assert.deepEqual(on(), []);
+  assert.equal(DB.placeRecommendation(r, 'up_next').feedback, 'saved'); assert.deepEqual(on(), ['Up next']);
+  assert.equal(DB.placeRecommendation(r, 'maybe').feedback, 'maybe'); assert.deepEqual(on(), ['Maybe']);
+  // taking the placement back leaves the reaction alone
+  const back = DB.placeRecommendation(r, null);
+  assert.equal(back.feedback, null); assert.equal(back.reaction, 'love'); assert.deepEqual(on(), []);
+  // removing takes it off the shelf too, and hating does not remove
+  DB.placeRecommendation(r, 'up_next');
+  const gone = DB.placeRecommendation(r, 'removed');
+  assert.equal(gone.feedback_note, DB.REMOVED_NOTE); assert.deepEqual(on(), []);
+  DB.placeRecommendation(r, null); DB.setRecommendationReaction(r, 'hate', 'too grim');
+  assert.equal(DB.placeRecommendation(r, 'maybe').reaction, 'hate');
+  assert.ok(feedbackDigest().some((l) => l.includes('Two Answers') && l.includes('maybe') && l.includes('bad suggestion: too grim')));
+  DB.setRecommendationReaction(r, null);
+  assert.ok(feedbackDigest().some((l) => l.includes('Two Answers') && !l.includes('suggestion')));
+});

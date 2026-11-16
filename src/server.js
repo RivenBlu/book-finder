@@ -252,6 +252,26 @@ route('POST', '/api/recommendations/:id/feedback', async (req, p) => {
   return { ok: true, shelves: DB.shelvesForBook(rec.book_id) };
 });
 
+// Where the book is kept (Up next, Maybe, off the list, or nowhere). Pressing the same answer again sends null.
+route('POST', '/api/recommendations/:id/place', async (req, p) => {
+  const b = await body(req);
+  if (![null, 'up_next', 'maybe', 'removed'].includes(b.place ?? null)) throw httpError(400, 'unknown place');
+  const row = DB.placeRecommendation(Number(p.id), b.place ?? null);
+  if (!row) throw httpError(404, 'no such recommendation');
+  return row;
+});
+// Her take on the suggestion (love, hate, or null to take it back). A taste signal only: the book is not moved.
+route('POST', '/api/recommendations/:id/reaction', async (req, p) => {
+  const b = await body(req);
+  if (![null, 'love', 'hate'].includes(b.reaction ?? null)) throw httpError(400, 'unknown reaction');
+  const rec = DB.db.prepare('SELECT book_id FROM recommendations WHERE id = ?').get(Number(p.id));
+  if (!rec) throw httpError(404, 'no such recommendation');
+  DB.setRecommendationReaction(Number(p.id), b.reaction ?? null, String(b.note || '').trim() || null);
+  if (b.reaction === 'hate' && b.note) DB.setFact({ key: 'rejected_' + rec.book_id, value: { note: String(b.note).trim() }, kind: 'trait', confidence: 0.7, source: 'feedback', note: 'Called a bad suggestion' });
+  else DB.db.prepare("UPDATE profile_facts SET active = 0 WHERE key = ? AND note = 'Called a bad suggestion'").run('rejected_' + rec.book_id);
+  return DB.db.prepare('SELECT id, book_id, feedback, feedback_note, reaction, reaction_note FROM recommendations WHERE id = ?').get(Number(p.id));
+});
+
 // ---------- shelves ----------
 route('GET', '/api/shelves', async () => DB.listShelves());
 route('POST', '/api/shelves', async (req) => { const b = await body(req); return { id: DB.createShelf(b.name, b.description || null) }; });

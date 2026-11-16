@@ -182,6 +182,11 @@ addColumn('shelf_items', 'page', 'INTEGER');     // reading progress for "Readin
 addColumn('books', 'digested_at', 'TEXT');       // when the review digest was written (stale digests are refreshed)
 addColumn('recommendations', 'outcome', 'TEXT'); // JSON: {outcome, page, reason, rating, at} from the loop-closer screen
 addColumn('recommendations', 'superseded_at', 'TEXT'); // set when "Same answers, different picks" replaces a slate; the rows stay as evidence
+addColumn('recommendations', 'reaction', 'TEXT');      // love | hate: her take on the suggestion itself, separate from where the book is kept
+addColumn('recommendations', 'reaction_note', 'TEXT');
+// One afternoon "Love it" also saved the book and wrote the reaction into the note; split the two.
+db.exec("UPDATE recommendations SET reaction = 'love', feedback_note = NULL WHERE feedback_note = 'Loved this suggestion'");
+db.exec("UPDATE recommendations SET reaction = 'hate', reaction_note = NULLIF(substr(feedback_note, 23), ''), feedback_note = NULL WHERE feedback_note LIKE 'Hated the suggestion%'");
 // Authorless history rows: NULL never collides in UNIQUE(title, author, source), so re-imports duplicated them.
 db.exec("UPDATE OR IGNORE reading_history SET author = '' WHERE author IS NULL");
 // A run that was cut off (app closed mid-research) must not leave its session stuck as 'researching'.
@@ -338,12 +343,30 @@ export function getRecommendations(sessionId) {
 export function setRecommendationFeedback(id, feedback, note = null, outcome = null) {
   db.prepare('UPDATE recommendations SET feedback = ?, feedback_note = ?, outcome = COALESCE(?, outcome) WHERE id = ?').run(feedback, note, outcome ? J(outcome) : null, id);
 }
+// Her take on a suggestion (love | hate | null). It never moves the book anywhere.
+export function setRecommendationReaction(id, reaction, note = null) {
+  db.prepare('UPDATE recommendations SET reaction = ?, reaction_note = ? WHERE id = ?').run(reaction, reaction ? note : null, id);
+}
+// Where a suggested book is kept: on Up next, on Maybe, off this list, or (null) nowhere yet. Each press is undoable.
+export const REMOVED_NOTE = 'Removed from the list';
+export function placeRecommendation(id, place) {
+  const rec = db.prepare('SELECT book_id, feedback, feedback_note FROM recommendations WHERE id = ?').get(id);
+  if (!rec) return null;
+  const off = (names) => db.prepare(`DELETE FROM shelf_items WHERE book_id = ? AND shelf_id IN (SELECT id FROM shelves WHERE name IN (${names.map(() => '?').join(',')}))`).run(rec.book_id, ...names);
+  const shelf = (name) => { const s = db.prepare('SELECT id FROM shelves WHERE name = ?').get(name); if (s) addToShelf({ shelfId: s.id, bookId: rec.book_id, exclusiveStatus: true }); };
+  if (place === 'up_next') { shelf('Up next'); setRecommendationFeedback(id, 'saved'); }
+  else if (place === 'maybe') { shelf('Maybe'); setRecommendationFeedback(id, 'maybe'); }
+  else if (place === 'removed') { off(['Up next', 'Maybe']); setRecommendationFeedback(id, 'not_now', REMOVED_NOTE); }
+  else { off(['Up next', 'Maybe']); setRecommendationFeedback(id, null); }
+  return db.prepare('SELECT id, book_id, feedback, feedback_note, reaction, reaction_note FROM recommendations WHERE id = ?').get(id);
+}
 // Picks from earlier sessions that never got an outcome: the loop-closer screen asks about them. A pick she never
 // touched is asked about for three weeks and then lapses quietly; one she saved or started is asked about after a week.
 export function pendingFollowups(excludeSessionId = null, limit = 6) {
   return db.prepare(`SELECT r.id, r.session_id, r.book_id, r.slot, r.fit, r.created_at, b.title, b.author, b.cover, b.pages, b.year, b.url, b.description, b.review_digest, s.mode
                      FROM recommendations r JOIN books b ON b.id = r.book_id JOIN sessions s ON s.id = r.session_id
                      WHERE r.slot NOT IN ('runner_up', 'exception') AND s.mode != 'gift' AND r.session_id != ? AND r.created_at < ? AND r.superseded_at IS NULL
+                       AND COALESCE(r.reaction, '') != 'hate'
                        AND ((r.feedback IS NULL AND r.created_at > ?) OR (r.feedback IN ('saved', 'started') AND r.created_at < ?))
                      ORDER BY r.id DESC LIMIT ?`).all(excludeSessionId ?? -1, new Date(Date.now() - 36e5).toISOString(), new Date(Date.now() - 21 * 864e5).toISOString(), new Date(Date.now() - 7 * 864e5).toISOString(), limit)
     .map((r) => ({ ...r, fit: P(r.fit), description: (r.description || '').slice(0, 600), review_digest: compactDigest(P(r.review_digest)) }));
@@ -355,7 +378,7 @@ function compactDigest(d) {
 export function listSessionsWithPicks(limit = 100) {
   const sessions = db.prepare("SELECT * FROM sessions WHERE status IN ('recommended', 'researching') ORDER BY id DESC LIMIT ?").all(limit)
     .map((s) => ({ ...s, brief: P(s.brief), progress: undefined, adaptive: undefined, anchors: undefined }));
-  const picksStmt = db.prepare(`SELECT r.id, r.book_id, r.rank, r.slot, r.feedback, r.feedback_note, r.outcome, r.fit, b.title, b.author, b.cover, b.pages, b.year,
+  const picksStmt = db.prepare(`SELECT r.id, r.book_id, r.rank, r.slot, r.feedback, r.feedback_note, r.reaction, r.outcome, r.fit, b.title, b.author, b.cover, b.pages, b.year,
                                        (SELECT d.id FROM debriefs d WHERE d.book_id = r.book_id ORDER BY d.id DESC LIMIT 1) AS debrief_id
                                 FROM recommendations r JOIN books b ON b.id = r.book_id WHERE r.session_id = ? AND r.superseded_at IS NULL ORDER BY r.rank`);
   return sessions.map((s) => ({
@@ -374,7 +397,7 @@ export function outcomeRows() {
 }
 // The owner's own past recommendations (gift slates are about someone else), including replaced slates.
 export function pastRecommendations(limit = 60) {
-  return db.prepare("SELECT r.book_id, r.feedback, r.feedback_note, r.created_at, b.title, b.author, b.goodreads_id FROM recommendations r JOIN books b ON b.id = r.book_id JOIN sessions s ON s.id = r.session_id WHERE s.mode != 'gift' ORDER BY r.id DESC LIMIT ?").all(limit);
+  return db.prepare("SELECT r.book_id, r.feedback, r.feedback_note, r.reaction, r.reaction_note, r.created_at, b.title, b.author, b.goodreads_id FROM recommendations r JOIN books b ON b.id = r.book_id JOIN sessions s ON s.id = r.session_id WHERE s.mode != 'gift' ORDER BY r.id DESC LIMIT ?").all(limit);
 }
 // Everything the owner has read, shelved (other than Someday/Maybe) or been recommended: ids and title keys,
 // so the pipeline can drop a candidate in code even when the model forgot the exclusion list.
