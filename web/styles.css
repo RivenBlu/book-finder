@@ -501,9 +501,8 @@ main { max-width: 1120px; }
    and the text keeps its proportions. */
 /* Page scale = a step for very wide windows times the reader's own choice (small, standard, large). */
 :root { --wide: 1; --size: 1; }
-@media (min-width: 2000px) { :root { --wide: 1.08; } }
-@media (min-width: 2600px) { :root { --wide: 1.15; } }
-@media (min-width: 3200px) { :root { --wide: 1.22; } }
+@media (min-width: 2600px) { :root { --wide: 1.03; } }
+@media (min-width: 3200px) { :root { --wide: 1.06; } }
 :root[data-size="small"] { --size: .87; }
 :root[data-size="large"] { --size: 1.15; }
 body { zoom: calc(var(--wide) * var(--size)); }
