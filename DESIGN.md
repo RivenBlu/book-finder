@@ -84,3 +84,6 @@ The reading check-in separates "not now" from "not for me", because a parked boo
 - Author rankings and path alternates are the model's knowledge, verified only when you check a title.
 - Full run is 4-7 minutes with default tiers because the long list and ranking use Opus at high effort. Lower tiers in Settings for speed.
 - Single user, localhost only, no auth.
+
+## 25. Follow-up questions that remember
+An audit of every follow-up the tool had asked showed it asking the same three things in each interview (heat level, how dark, how central the romance) and getting "all fine" or "whatever" each time, because the answers never left the session they were given in. Earlier follow-ups and their answers are now part of the reader context (`earlierFollowups`), and the question writer may not repeat a settled one. It may also return fewer questions, or none. Each question covers one thing, makes sense without the earlier screens, and takes several answers; the page adds its own "No preference" answer, so the model no longer writes "either" options. A must-have ladder asks for the least that counts. A "which books are at that level" question draws on books she has read and spans the levels, so the answer says something.

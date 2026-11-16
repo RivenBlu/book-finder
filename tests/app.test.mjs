@@ -316,3 +316,16 @@ test('a wish is not a must-have unless she says so', () => {
   DB.addAnswer({ sessionId: c, qId: 'musts_now', layer: 'checkin', question: 'q', options: null, answer: null, freeText: 'vampires; romance' });
   assert.equal(mustsAreWishes(c), false);
 });
+
+test('follow-up answers from earlier interviews are remembered, and the current interview is left out', async () => {
+  const { earlierFollowups, fullContext: ctxOf } = await import('../src/pipeline/context.js');
+  const opts = [{ id: 'chaste', label: 'Chaste' }, { id: 'steamy', label: 'Steamy' }];
+  const old = DB.createSession('quick');
+  DB.addAnswer({ sessionId: old, qId: 'adaptive_1_heat', layer: 'adaptive', question: 'What heat level?', options: opts, answer: ['chaste', 'steamy'], freeText: 'whatever' });
+  const now = DB.createSession('quick');
+  DB.addAnswer({ sessionId: now, qId: 'adaptive_1_dark', layer: 'adaptive', question: 'How dark?', options: opts, answer: null, freeText: 'all fine' });
+  const seen = earlierFollowups(now);
+  assert.ok(seen.some((f) => f.asked === 'What heat level?' && f.answered === 'Chaste + Steamy | own words: whatever'));
+  assert.ok(!seen.some((f) => f.asked === 'How dark?'));
+  assert.ok(ctxOf(now).earlier_followups.some((f) => f.asked === 'What heat level?'));
+});

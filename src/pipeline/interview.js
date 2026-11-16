@@ -65,8 +65,9 @@ export function nextQuestion(sessionId) {
 function withContext(q, answers) {
   const said = (id) => (answers.find((a) => a.q_id === id && !a.skipped)?.free_text || '').trim();
   const musts = said('musts_now'), wish = said('wish_now');
+  // Only where the question is about her own sentence; on the others the line was noise.
   if (q.must && musts) return { ...q, context: { label: 'You said this is a must', text: musts } };
-  if (wish) return { ...q, context: { label: 'You asked for', text: wish } };
+  if (q.pair && wish) return { ...q, context: { label: 'You asked for', text: wish } };
   return q;
 }
 
@@ -156,18 +157,29 @@ export async function generateAdaptive(sessionId) {
   if (n <= 0 && !musts) { updateSession(sessionId, { adaptive: [] }); return []; }
   const ctx = session.mode === 'gift' ? { gift: true, note: 'This interview is about another person (a gift). Only the session answers describe them.', session_answers: answersDigest(sessionId) } : fullContext(sessionId);
   const extra = session.mode === 'path' ? ' The reader is designing a READING PATH (several books in order over weeks); ask what sharpens the arc: the first step, the destination, or the thread.' : session.mode === 'gift' ? ' The books are a GIFT for the person described; ask what narrows the choice for them.' : '';
-  const mustPart = musts ? `\n\nMUST-HAVES. The reader wrote these non-negotiables: "${musts}". They become hard filters, and past searches failed because the tool read a must-have more strictly or more loosely than she meant. So FIRST write one closed question per must-have whose meaning could be read in more than one way (at most 3 such questions, ids prefixed adaptive_must_, type single). The options run from the loosest reading to the strictest and are concrete, e.g. for "romance": "Any love thread, even a quiet one" / "A real subplot with page time" / "The romance is the main story"; for "high fantasy": "Any invented world" / "Invented world where magic matters" / "Epic scale: kingdoms, wars, magic". For a must-have that is a judgement and cannot be checked as a fact ("well written", "smart", "best in class"), instead offer 4-6 real, widely known books of the kind she is asking about as reference points and ask which are at the level she means (type multi; real titles are allowed in this one case, with the author in the hint). Skip a must-have that is already unambiguous ("under 400 pages", "standalone") or that she already illustrated with an example book. These questions do not count towards the number below.` : '';
-  const prompt = `READER CONTEXT (JSON):\n${JSON.stringify(ctx, null, 1)}${mustPart}\n\nDesign ${Math.min(Math.max(n, 0), 4)} ${musts ? 'further ' : ''}follow-up questions (or fewer if the picture is already sharp). Prefer one "pair" question with invented micro-blurbs.${extra}`;
+  const mustPart = musts ? `\n\nMUST-HAVES. The reader wrote these non-negotiables: "${musts}". They become hard filters, and past searches failed because the tool read a must-have more strictly or more loosely than she meant. So FIRST write one closed question per must-have whose meaning could be read in more than one way (at most 3 such questions, ids prefixed adaptive_must_, type single). Ask for the minimum: "By 'magic', what is the least that counts?" The options run from the loosest reading to the strictest and are concrete, e.g. for "romance": "Any love thread, even a quiet one" / "A real subplot with page time" / "The romance is the main story"; for "high fantasy": "Any invented world" / "Invented world where magic matters" / "Epic scale: kingdoms, wars, magic". For a must-have that is a judgement and cannot be checked as a fact ("well written", "smart", "best in class"), instead offer 5-6 real books as reference points and ask which are at the level she means (type multi; real titles are allowed in this one case, with the author in the hint). Each option is one specific title, never "an author at their best". She can only judge books she knows, so take them mostly from her reading history and shelves, and make the answer informative: span the levels, with two or three she rated highly and two or three popular books of the kind she is asking about that she rated in the middle or dropped. Do not offer only her favourites. Skip a must-have that is already unambiguous ("under 400 pages", "standalone") or that she already illustrated with an example book. These questions do not count towards the number below.` : '';
+  const prompt = `READER CONTEXT (JSON):\n${JSON.stringify(ctx, null, 1)}${mustPart}\n\nDesign at most ${Math.min(Math.max(n, 0), 4)} ${musts ? 'further ' : ''}follow-up questions. If you ask any, one of them may be a "pair" question with invented micro-blurbs.${extra}`;
   const { data } = await ask({ system: ADAPTIVE_SYSTEM, prompt, schema: ADAPTIVE_SCHEMA, tier: getSetting('tier_adaptive', 'smart'), effort: 'medium' });
-  const qs = (data.questions || []).slice(0, 7).map((q, i) => ({
-    id: `adaptive_${i + 1}_${(q.id || 'q').replace(/^adaptive_/, '').replace(/\W+/g, '_').slice(0, 40)}`,
-    must: /^(adaptive_)?must_/.test(q.id || '') || undefined,
-    // Follow-ups take several answers. One-of only for a blurb choice and for a must-have strictness ladder
-    // (a must-have question the model marked multi is the "which of these books are at that level" kind).
-    layer: 'adaptive', type: q.type === 'pair' || (/^(adaptive_)?must_/.test(q.id || '') && q.type !== 'multi') ? 'single' : 'multi', text: q.text, help: q.help || '',
-    options: q.options.map((o, j) => ({ id: o.id || `o${j + 1}`, label: o.label, hint: o.hint || '' })),
-    pair: q.type === 'pair',
-  }));
+  const NO_PREF = { id: 'no_preference', label: 'No preference', hint: 'Any of these is fine', exclusive: true };
+  const qs = (data.questions || []).filter((q) => q.text && q.options?.length >= 2).slice(0, 7).map((q, i) => {
+    const must = /^(adaptive_)?must_/.test(q.id || '');
+    // A must-have ladder (least to most) is one answer: the minimum that counts. Everything else takes several answers,
+    // including the blurb pair and the "which of these books are at that level" kind of must-have question.
+    const ladder = must && q.type !== 'multi';
+    // The model sometimes still writes its own "either / doesn't matter" option; the page's own answer replaces it.
+    // An older habit of the model in a pair: a short handle in the label and the blurb in the hint. The page shows the blurb as the answer.
+    const shaped = q.options.map((o, j) => (q.type === 'pair' && o.hint && o.label.length < 40 ? { id: o.id || `o${j + 1}`, label: o.hint, hint: '' } : { id: o.id || `o${j + 1}`, label: o.label, hint: o.hint || '' }));
+    const real = shaped.filter((o) => !/^(either|both|any|all)\b|no preference|does ?n[o']t matter|whatever/i.test(o.label.trim()));
+    const options = real.length >= 2 ? real : shaped;
+    return {
+      id: `adaptive_${i + 1}_${(q.id || 'q').replace(/^adaptive_/, '').replace(/\W+/g, '_').slice(0, 40)}`,
+      must: must || undefined,
+      layer: 'adaptive', type: ladder ? 'single' : 'multi', text: q.text,
+      help: ladder ? 'Pick the least that still counts. Anything stronger passes too.' : q.type === 'pair' ? 'Pick every one you would open tonight.' : q.help || '',
+      options: ladder || must ? options : [...options, NO_PREF],
+      pair: q.type === 'pair',
+    };
+  });
   updateSession(sessionId, { adaptive: qs, adaptive_reasoning: data.reasoning || null });
   return qs;
 }

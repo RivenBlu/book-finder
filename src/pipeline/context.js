@@ -1,5 +1,5 @@
 // Assemble everything the LLM should know about the reader, compactly.
-import { getFacts, listHistory, allShelvedBooks, pastRecommendations, getAnswers, historyStats, moodLog, listDebriefs, listNotes } from '../db.js';
+import { db, getFacts, listHistory, allShelvedBooks, pastRecommendations, getAnswers, historyStats, moodLog, listDebriefs, listNotes } from '../db.js';
 import { questionById, DEBRIEF } from '../questions.js';
 import { sayVsDo, fingerprintCompact, debriefPatterns } from './evidence.js';
 
@@ -90,6 +90,21 @@ function labelFor(q, options, id) {
   return o.label + (o.hint ? ` [${o.hint}]` : '');
 }
 
+// Follow-up questions from earlier interviews, with her answers. Without this the tool asked the same things
+// (heat level, how dark, how central the romance) in every interview and never learned the answer.
+export function earlierFollowups(sessionId = null, limit = 30) {
+  const rows = db.prepare(`SELECT a.session_id, s.started_at, a.question, a.options, a.answer, a.free_text
+                           FROM answers a JOIN sessions s ON s.id = a.session_id
+                           WHERE a.layer = 'adaptive' AND a.skipped = 0 AND s.mode != 'gift' AND a.session_id != ?
+                           ORDER BY a.id DESC LIMIT ?`).all(sessionId ?? -1, limit);
+  return rows.map((r) => {
+    const opts = JSON.parse(r.options || '[]'); let ans = null; try { ans = JSON.parse(r.answer); } catch { ans = r.answer; }
+    const ids = Array.isArray(ans) ? ans : ans != null ? [ans] : [];
+    const picked = ids.map((id) => opts.find((o) => o.id === id)?.label || String(id)).join(' + ');
+    return { date: String(r.started_at).slice(0, 10), asked: r.question, offered: opts.map((o) => o.label).join(' / '), answered: [picked, r.free_text ? `own words: ${r.free_text}` : ''].filter(Boolean).join(' | ') };
+  });
+}
+
 export function fullContext(sessionId) {
   return {
     today: new Date().toISOString().slice(0, 10),
@@ -101,6 +116,7 @@ export function fullContext(sessionId) {
     session_answers: sessionId ? answersDigest(sessionId) : [],
     mood_log: moodLog(12).map((m) => ({ date: m.at.slice(0, 10), mood: m.mood, need: m.need, demand: m.demand, tone: m.tone, safe: m.safe, life: m.life })),
     after_reading: debriefsDigest(),
+    earlier_followups: (() => { const f = earlierFollowups(sessionId); return f.length ? f : undefined; })(),
     say_vs_do: (() => { const s = sayVsDo(); return s.sentences.length ? s.sentences : undefined; })(),
     appeal_fingerprint: fingerprintCompact() || undefined,
     underlined: listNotes({ limit: 40 }).filter((n) => n.kind !== 'checkin').slice(0, 25).map((n) => `${n.title ? n.title + ': ' : ''}"${n.text.slice(0, 240)}"`),

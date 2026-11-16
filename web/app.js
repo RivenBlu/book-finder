@@ -338,16 +338,20 @@ function askClosed(q, { index = 0, total = 1, eyebrow = 'After reading', head = 
   app.querySelectorAll('.opt').forEach((b) => b.onclick = () => {
     if (leaving) return; // a click during the leave animation must not change the answer already being saved
     const v = b.dataset.id;
-    if (isMulti) { sel = sel.includes(v) ? sel.filter((x) => x !== v) : [...sel, v]; b.classList.toggle('on'); }
+    if (isMulti) {
+      const excl = q.options.filter((o) => o.exclusive).map((o) => o.id);
+      sel = sel.includes(v) ? sel.filter((x) => x !== v) : excl.includes(v) ? [v] : [...sel.filter((x) => !excl.includes(x)), v];
+      app.querySelectorAll('.opt').forEach((x) => x.classList.toggle('on', sel.includes(x.dataset.id)));
+    }
     else { sel = [v]; app.querySelectorAll('.opt').forEach((x) => x.classList.toggle('on', x.dataset.id === v)); if (free.hidden) setTimeout(() => finish(false), 400); }
   });
   document.getElementById('next').onclick = () => { if (!isText && !sel.length && !free.value.trim()) return toast('Pick an option, write your own, or skip.'); finish(false); };
   document.getElementById('skip').onclick = () => finish(true);
   window.onkeydown = (e) => {
-    if (e.target.tagName === 'TEXTAREA') { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); document.getElementById('next').click(); } return; }
+    if (e.target.tagName === 'TEXTAREA') { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); document.getElementById('next')?.click(); } return; }
     if (e.target.tagName === 'INPUT') return;
     if (optIndex(e) >= 0 && !isText) { const b = app.querySelectorAll('.opt')[optIndex(e)]; if (b) { e.preventDefault(); b.click(); } }
-    else if (e.key === 'Enter') { e.preventDefault(); document.getElementById('next').click(); }
+    else if (e.key === 'Enter') { e.preventDefault(); document.getElementById('next')?.click(); }
   };
   // Screen readers land on the new question; sighted readers see no outline (the focus is not from the keyboard).
   if (isText) free.focus(); else { const qt = app.querySelector('.q .text'); if (qt) { qt.tabIndex = -1; qt.focus({ preventScroll: true }); } }
@@ -540,7 +544,11 @@ async function renderQuestion(id, nx, mode, reaction) {
   app.querySelectorAll('.opt').forEach((b) => b.onclick = () => {
     const v = b.dataset.id;
     if (isMulti && q.max && !sel.includes(v) && sel.length >= q.max) return toast(`Up to ${q.max}. Unpick one first.`);
-    if (isMulti) { sel = sel.includes(v) ? sel.filter((x) => x !== v) : [...sel, v]; b.classList.toggle('on'); }
+    if (isMulti) {
+      const excl = q.options.filter((o) => o.exclusive).map((o) => o.id);
+      sel = sel.includes(v) ? sel.filter((x) => x !== v) : excl.includes(v) ? [v] : [...sel.filter((x) => !excl.includes(x)), v];
+      app.querySelectorAll('.opt').forEach((x) => x.classList.toggle('on', sel.includes(x.dataset.id)));
+    }
     else { sel = [v]; app.querySelectorAll('.opt').forEach((x) => x.classList.toggle('on', x.dataset.id === v)); if (free.hidden) setTimeout(() => submit(), 400); }
   });
   document.getElementById('next').onclick = () => submit(false);
@@ -773,11 +781,11 @@ async function results(id) {
   // The must-haves were the bottleneck only when fewer than two judged books had them all.
   const mustFail = !isPath && !isGift && musts.length > 0 && picks.length < 2 && (!mr || mr.passed_all < 2);
   // Borderline books join the list below the picks: more choice, each with its number and the reason for the doubt.
-  const maybes = isPath ? [] : runners.filter((r) => r.fit.check?.verdict === 'maybe' && !r.fit.check.missing?.length).sort((x, y) => y.fit.check.fit - x.fit.check.fit);
+  const maybes = isPath ? [] : runners.filter((r) => r.fit.check?.verdict === 'maybe' && !r.fit.check.missing?.length && r.feedback_note !== REMOVED).sort((x, y) => y.fit.check.fit - x.fit.check.fit);
   const others = runners.filter((r) => !maybes.includes(r));
   // A book she kept against the judge's advice stays on the page, below the ones the judge stands behind.
-  const keptLow = isPath ? [] : picks.filter((r) => r.fit.kept && r.fit.check && !['yes', 'probably'].includes(r.fit.check.verdict));
-  const main = picks.filter((r) => !keptLow.includes(r));
+  const keptLow = isPath ? [] : picks.filter((r) => r.feedback_note !== REMOVED && r.fit.kept && r.fit.check && !['yes', 'probably'].includes(r.fit.check.verdict));
+  const main = picks.filter((r) => !keptLow.includes(r) && (isPath || r.feedback_note !== REMOVED));
   const dropped = (b.dropped || []).filter((d) => d.title);
   const runnerRow = (r, body) => raw(h`<div class="runner">${coverImg(r.cover, r.title)}<div><div class="ttl"><a href="#book/${r.book_id}" style="color:inherit">${r.title}</a></div><div class="by">${r.author} · ${r.year || ''}</div>${body}${strip(r.fit.check?.glance, r.review_digest)}${checkLine(r.fit.check)}<div class="actions" style="border:0;padding-top:10px;margin-top:6px">${shelfMenu(r, shelves)}<span class="saved" data-saved="${r.id}">${r.feedback ? labelFeedback(r.feedback) : ''}</span></div></div></div>`);
   app.innerHTML = h`

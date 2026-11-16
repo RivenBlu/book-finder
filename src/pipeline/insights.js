@@ -109,7 +109,7 @@ export async function debriefFollowup({ bookId, recId = null, outcome, answers =
   const prompt = `BOOK: ${book.title} by ${book.author} (${book.year || '?'}, ${book.pages || '?'} pages). Genres: ${book.genres.slice(0, 6).join(', ')}.\nDESCRIPTION: ${(book.description || '').slice(0, 900)}\nREVIEW DIGEST: ${d ? JSON.stringify({ one_line: d.one_line, praise: d.praise, complaints: d.complaints, first_100_pages: d.first_100_pages, appeal: d.appeal }) : '(none)'}\n${plan.rec?.risk_for_you ? `THE TOOL'S NAMED RISK WHEN IT RECOMMENDED IT: ${plan.rec.risk_for_you}\n` : ''}\nOUTCOME: ${outcome}${rating ? `, rated ${rating}/5` : ''}${page ? `, stopped around page ${page}` : ''}\nCLOSED ANSWERS:\n${given.join('\n')}\nOWN WORDS: ${text?.trim() || '(none)'}\n\nWrite the one follow-up question, or set ask=false.`;
   const { data } = await ask({ system: DEBRIEF_FOLLOWUP_SYSTEM, prompt, schema: DEBRIEF_FOLLOWUP_SCHEMA, tier: DB.getSetting('tier_adaptive', 'smart'), effort: 'low' });
   if (!data.ask) return { ask: false, note: data.note_for_profile || null };
-  return { ask: true, question: { id: 'followup', layer: 'debrief', type: 'multi', text: data.text, help: data.help || '', options: data.options.map((o, j) => ({ id: o.id || `o${j + 1}`, label: o.label, hint: o.hint || '' })) }, note: data.note_for_profile || null };
+  return { ask: true, question: { id: 'followup', layer: 'debrief', type: 'multi', text: data.text, help: data.help || '', options: data.options.map((o, j) => ({ id: o.id || `o${j + 1}`, label: o.label, hint: '', appeal: o.hint || '' })) }, note: data.note_for_profile || null };
 }
 
 // ---------- periodic report ----------
