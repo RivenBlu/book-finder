@@ -97,6 +97,16 @@ themeBtn.onclick = () => {
   toast(next === 'dark' ? 'Dark theme' : 'Light theme');
 };
 
+// ---------- text size ----------
+const sizeBtns = [...document.querySelectorAll('.sizes button')];
+const showSize = () => { const cur = document.documentElement.getAttribute('data-size') || 'standard'; sizeBtns.forEach(b => b.setAttribute('aria-pressed', String(b.dataset.size === cur))); };
+sizeBtns.forEach(b => b.onclick = () => {
+  document.documentElement.setAttribute('data-size', b.dataset.size);
+  try { localStorage.setItem('bf-size', b.dataset.size); } catch {}
+  showSize();
+});
+showSize();
+
 // ---------- router ----------
 const routes = { home, interview, results, shelves, profile, history, settings, book, session: results, check, followups: followupsPage, report, past, debrief: debriefPage, trainer };
 async function router() {

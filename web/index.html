@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT@9..144,400..700,0..100&family=Literata:opsz,wght@7..72,400..700&family=Instrument+Sans:wght@400..700&display=swap">
 <link rel="stylesheet" href="/styles.css">
-<script>var t='light';try{t=localStorage.getItem('bf-theme')||'light';}catch(e){}document.documentElement.setAttribute('data-theme',t);</script>
+<script>var t='light';try{t=localStorage.getItem('bf-theme')||'light';}catch(e){}document.documentElement.setAttribute('data-theme',t);var z='standard';try{z=localStorage.getItem('bf-size')||'standard';}catch(e){}document.documentElement.setAttribute('data-size',z);</script>
 </head>
 <body>
 <div class="progressbar" id="progressbar" hidden><div></div></div>
@@ -22,6 +22,11 @@
     <a href="#shelves" data-nav="shelves">My books</a>
     <a href="#profile" data-nav="profile">Reader DNA</a>
     <a href="#settings" data-nav="settings">Settings</a>
+    <span class="sizes" role="group" aria-label="Text size">
+      <button data-size="small" title="Small text" aria-label="Small text">A</button>
+      <button data-size="standard" title="Standard text" aria-label="Standard text">A</button>
+      <button data-size="large" title="Large text" aria-label="Large text">A</button>
+    </span>
     <button class="theme" id="themeBtn" title="Switch theme" aria-label="Switch theme"></button>
   </nav>
 </header>
