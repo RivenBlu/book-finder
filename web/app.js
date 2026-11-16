@@ -220,7 +220,7 @@ async function interview(id) {
 }
 
 // ---------- loop closer ----------
-const OUTCOMES = [['finished', 'Finished it', 'Rate it and say a word'], ['dropped', 'Dropped it', 'Where, and why'], ['later', 'Not started yet, still want it', 'Stays on Up next'], ['forgot', 'Not started, and I forgot what it was', 'I remind you, then you keep it or let it go'], ['not_interested', 'Not interested after all', 'One line teaches the tool']];
+const OUTCOMES = [['finished', 'Finished it', 'Rate it and say a word'], ['dropped', 'Dropped it', 'Where, and why'], ['later', 'Not started yet, still want it', 'Stays on Up next'], ['maybe', 'Curious, but not sure', 'Keep it on my radar: it goes to Maybe'], ['forgot', 'Not started, and I forgot what it was', 'I remind you, then you keep it or let it go'], ['not_interested', 'Not interested after all', 'One line teaches the tool']];
 // The book header on every "what happened" and debrief screen: cover, title, a "remind me" panel with what the
 // book was and why it was suggested, and a link to the full book page (opens in a new tab so the flow is not lost).
 function bookHead(r, { eyebrow = null } = {}) {
@@ -265,6 +265,7 @@ function askOutcome(r, { index = 0, total = 1, eyebrow = 'What happened', previo
     if (id === 'finished') detail.innerHTML = h`<label class="lbl">Your rating</label><div class="rating-input" role="radiogroup" aria-label="Your rating" data-r="0">${[1, 2, 3, 4, 5].map((n) => raw(h`<span data-n="${n}" role="radio" tabindex="0" aria-label="${n} of 5 stars">★</span>`))}</div><p class="cap sec" style="margin-top:10px">Next: five quick questions on what worked and what did not, while it is fresh.</p>`;
     else if (id === 'dropped') detail.innerHTML = h`<label class="lbl">Around which page?</label><input type="number" id="page" min="1" style="width:120px" placeholder="${r.pages ? 'of ' + r.pages : ''}"><p class="cap sec" style="margin-top:10px">Next: four quick questions on what made you stop. The most useful answers in the app.</p>`;
     else if (id === 'not_interested') detail.innerHTML = h`<label class="lbl">Why not? One line.</label><textarea id="reason" rows="2"></textarea>`;
+    else if (id === 'maybe') detail.innerHTML = h`<p class="cap sec">It goes to your Maybe shelf and stays on your radar. I will not suggest it again or ask about it again; "Which of these fits me right now?" on that shelf brings it back when the mood is right.</p><label class="lbl">What makes you unsure? Optional.</label><textarea id="reason" rows="2" placeholder="e.g. sounds good but long; not sure about the darkness"></textarea>`;
     else if (id === 'forgot') {
       // Open the reminder (what the book is, why it was suggested), then two plain choices. Letting go is not a verdict on the book.
       const panel = document.getElementById('remind'), rb = document.getElementById('remindBtn');
@@ -292,7 +293,7 @@ function askOutcome(r, { index = 0, total = 1, eyebrow = 'What happened', previo
   document.getElementById('skipAll').onclick = () => skip();
   window.onkeydown = (e) => {
     if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); next.click(); } return; }
-    if (/^[1-5]$/.test(e.key)) { e.preventDefault(); pick(OUTCOMES[Number(e.key) - 1][0]); }
+    if (/^[1-6]$/.test(e.key)) { e.preventDefault(); pick(OUTCOMES[Number(e.key) - 1][0]); }
     else if (e.key === 'Enter') { e.preventDefault(); next.click(); }
   };
 }
@@ -1022,7 +1023,7 @@ function verdictBlock(v, when_) {
     </dl>
   </div>`);
 }
-const labelFeedback = (f) => ({ saved: 'Saved', not_now: 'Not now', not_for_me: 'Not for me', already_read: 'Already read', started: 'Reading now', finished: 'Finished', dropped: 'Dropped', later: 'Up next' }[f] || f);
+const labelFeedback = (f) => ({ saved: 'Saved', maybe: 'On my radar', not_now: 'Not now', not_for_me: 'Not for me', already_read: 'Already read', started: 'Reading now', finished: 'Finished', dropped: 'Dropped', later: 'Up next' }[f] || f);
 const DEBRIEF_WORDS = {
   worked: { characters: 'the people', voice: 'the voice and sentences', pull: 'the pull', atmosphere: 'the atmosphere', ideas: 'the ideas', feeling: 'the feeling', structure: 'the shape', nothing: 'nothing much' },
   bothered: { slow_start: 'slow start', too_long: 'dragged or too long', prose: 'the prose', characters: 'the people', too_dark: 'too dark or heavy', too_light: 'too light or silly', predictable: 'predictable', confusing: 'confusing', ending: 'the ending', content: 'content I did not want', wrong_moment: 'wrong moment', nothing: 'nothing really' },

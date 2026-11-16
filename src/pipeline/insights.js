@@ -13,7 +13,7 @@ export { sayVsDo, fingerprint, fingerprintCompact, debriefPatterns };
 // ---------- loop closer ----------
 export function followups(excludeSessionId = null) { return DB.pendingFollowups(excludeSessionId, 6); }
 
-/** outcome: finished | dropped | later | forgot | not_interested. page/reason/rating optional. */
+/** outcome: finished | dropped | later | maybe | forgot | not_interested. page/reason/rating optional. */
 export function recordOutcome(recId, { outcome, page = null, reason = null, rating = null }) {
   const rec = DB.db.prepare('SELECT * FROM recommendations WHERE id = ?').get(recId);
   if (!rec) throw new Error('no such recommendation');
@@ -34,6 +34,10 @@ export function recordOutcome(recId, { outcome, page = null, reason = null, rati
     DB.setRecommendationFeedback(recId, 'not_for_me', reason, { outcome, reason, at });
     DB.addToShelf({ shelfId: shelf('Not for me').id, bookId: rec.book_id, note: reason, exclusiveStatus: true });
     if (reason) DB.setFact({ key: 'rejected_' + rec.book_id, value: { note: reason }, kind: 'trait', confidence: 0.6, source: 'feedback', note: 'Rejected recommendation' });
+  } else if (outcome === 'maybe') {
+    // Curious but unsure: it stays on her radar (the Maybe shelf), is not suggested again, and is not asked about again.
+    DB.setRecommendationFeedback(recId, 'maybe', reason, { outcome, reason, at });
+    DB.addToShelf({ shelfId: shelf('Maybe').id, bookId: rec.book_id, note: reason, exclusiveStatus: true });
   } else if (outcome === 'forgot') {
     // Never started and no longer remembered: let go without a judgement. No shelf, no lesson about her taste, never asked again.
     DB.setRecommendationFeedback(recId, 'not_now', reason, { outcome, reason, at });
@@ -126,7 +130,7 @@ export function reportStats(period = 'quarter') {
   const notes = DB.listNotes({ limit: 500 }).filter((n) => n.created_at >= from);
   return {
     period, from: from.slice(0, 10), days,
-    recommendations: { picks: inP.length, finished: count(inP, (r) => r.feedback === 'finished'), dropped: count(inP, (r) => r.feedback === 'dropped'), later: count(inP, (r) => r.feedback === 'later' || r.feedback === 'saved'), rejected: count(inP, (r) => r.feedback === 'not_for_me'), untold: count(inP, (r) => !r.feedback) },
+    recommendations: { picks: inP.length, finished: count(inP, (r) => r.feedback === 'finished'), dropped: count(inP, (r) => r.feedback === 'dropped'), later: count(inP, (r) => ['later', 'saved', 'maybe'].includes(r.feedback)), rejected: count(inP, (r) => r.feedback === 'not_for_me'), untold: count(inP, (r) => !r.feedback) },
     by_slot: bySlot,
     drop_reasons: inP.filter((r) => r.feedback === 'dropped').map((r) => `${r.title}: ${r.feedback_note || r.outcome?.reason || 'no reason given'}`),
     finished_titles: inP.filter((r) => r.feedback === 'finished').map((r) => `${r.title}${r.outcome?.rating ? ' (' + r.outcome.rating + '/5)' : ''}`),
