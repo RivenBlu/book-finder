@@ -1,7 +1,7 @@
 // Long-term learning: rebuild the Reader DNA from all evidence, and import reading history CSVs.
 import { ask } from '../llm.js';
 import { REFLECT_SCHEMA, REFLECT_SYSTEM } from '../prompts.js';
-import { setFact, getFacts, addHistory, getSetting, setSetting, evidenceStamp, now } from '../db.js';
+import { db, setFact, getFacts, addHistory, getSetting, setSetting, evidenceStamp, now } from '../db.js';
 import { fullContext } from './context.js';
 
 export async function reflectProfile() {
@@ -10,6 +10,10 @@ export async function reflectProfile() {
   const prompt = `EVIDENCE (JSON):\n${JSON.stringify(ctx, null, 1)}\n\nPREVIOUSLY INFERRED FACTS:\n${previous.join('\n') || '(none)'}\n\nRebuild the Reader DNA and the inferred facts. Keep facts that still hold; drop or revise those contradicted by newer evidence.`;
   const { data } = await ask({ system: REFLECT_SYSTEM, prompt, schema: REFLECT_SCHEMA, tier: getSetting('tier_reflect', 'best'), effort: 'high' });
   setFact({ key: 'reader_dna', value: data.reader_dna, kind: 'trait', confidence: 0.8, source: 'inferred', note: 'Rebuilt from all evidence' });
+  // The rebuild returns the whole set of patterns that still hold. Earlier ones it did not repeat are retired (kept in
+  // history, no longer active); otherwise every rebuild piles new keys on top of old, contradictory ones.
+  // Patterns the reader confirmed herself (source "manual") stay.
+  db.prepare("UPDATE profile_facts SET active = 0 WHERE active = 1 AND source = 'inferred' AND key LIKE 'inferred_%'").run();
   for (const f of data.inferred_facts || []) {
     setFact({ key: 'inferred_' + f.key.replace(/^inferred_/, ''), value: f.value, kind: 'trait', confidence: f.confidence, source: 'inferred', note: f.evidence });
   }
