@@ -11,7 +11,7 @@ import { debriefQuestions, DEBRIEF } from '../questions.js';
 export { sayVsDo, fingerprint, fingerprintCompact, debriefPatterns };
 
 // ---------- loop closer ----------
-export function followups(excludeSessionId = null, all = false) { return DB.pendingFollowups(excludeSessionId, all ? 12 : 6, { all }); }
+export function followups(excludeSessionId = null, all = false) { return DB.pendingFollowups(excludeSessionId, all ? 60 : 6, { all }); }
 
 /** outcome: finished | dropped | later | maybe | forgot | not_interested. page/reason/rating optional. */
 export function recordOutcome(recId, { outcome, page = null, reason = null, rating = null }) {

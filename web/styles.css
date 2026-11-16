@@ -589,3 +589,10 @@ nav { font-size: 16px; }
 @media (max-width: 520px) { .opts.scale { gap: 5px; } .opts.scale .opt { padding: 10px 2px; } .opts.scale .opt .l { font-size: 12.5px; overflow-wrap: anywhere; } }
 .actgrp .outcome { font-family: var(--ui); font-size: 14.5px; font-weight: 600; color: var(--ink); }
 section:has(> .mtip) { position: relative; }
+.trbtns .chip { padding: 0 8px; }
+.row.between:has(> .spotwrap) { flex-wrap: nowrap; }
+.row.between:has(> .spotwrap) > :first-child { min-width: 0; }
+.spotwrap .spot-art { width: 88px; }
+/* a book removed in this view stays out of a printout too */
+.rowpick.removed > :not(.rowgone) { display: none !important; }
+@media print { .rowpick.removed { display: none !important; } }

@@ -196,6 +196,7 @@ route('GET', '/api/moods', async () => DB.moodLog(60));
 
 // ---------- learning: loop closer, evidence, reports, history enrichment, author next, notes ----------
 route('GET', '/api/followups', async (req) => { const q = new URL(req.url, 'http://x').searchParams; return followups(Number(q.get('exclude')) || null, q.get('all') === '1'); });
+route('GET', '/api/followups/count', async () => ({ n: DB.untoldCount() }));
 route('POST', '/api/recommendations/:id/outcome', async (req, p) => { const b = await body(req); return recordOutcome(Number(p.id), b); });
 route('GET', '/api/insights', async () => ({ sayVsDo: sayVsDo(), fingerprint: fingerprint(), afterReading: debriefPatterns() }));
 // Past picks: every slate with what became of each book.
@@ -241,6 +242,10 @@ route('POST', '/api/recommendations/:id/feedback', async (req, p) => {
   const b = await body(req);
   const rec = DB.db.prepare('SELECT book_id FROM recommendations WHERE id = ?').get(Number(p.id));
   if (!rec) throw httpError(404, 'no such recommendation');
+  // A recorded outcome (finished, dropped, rejected, read before, reading) is only replaced by another outcome,
+  // never by a shelf button pressed in passing.
+  const cur = DB.recommendationRow(Number(p.id));
+  if (DB.RECORDED_OUTCOMES.includes(cur.feedback) && !DB.RECORDED_OUTCOMES.includes(b.feedback)) throw httpError(409, `This book already has an outcome (${cur.feedback.replace(/_/g, ' ')}). Change it from Past picks.`);
   DB.setRecommendationFeedback(Number(p.id), b.feedback, b.note || null);
   if (b.shelf) {
     const shelf = DB.listShelves().find((s) => s.name === b.shelf || s.id === b.shelf);

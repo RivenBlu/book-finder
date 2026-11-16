@@ -217,8 +217,12 @@ test('second opinion: only yes/probably stay picks, must-have misses become exce
   assert.deepEqual(out.exceptions.map((e) => [e.candidate_index, e.missing]), [[3, 'romance at the centre']]);
   assert.deepEqual(out.runners_up.map((r) => r.candidate_index), [2]);
   assert.deepEqual(out.dropped.map((d) => d.candidate_index).sort(), [1, 5]);
-  assert.match(out.note_to_reader, /took out B, C;/);
-  assert.match(out.note_to_reader, /D misses one of your must-haves/);
+  // The note says where each first-round pick went: C is still on the page as a "maybe", B is set aside, D is a near miss,
+  // and the promoted book is mentioned too.
+  assert.match(out.note_to_reader, /C is only a "maybe".*under "Borderline"/);
+  assert.match(out.note_to_reader, /took out B;.*"Set aside after reading the reviews"/);
+  assert.match(out.note_to_reader, /D misses one of your must-haves.*"Near misses"/);
+  assert.match(out.note_to_reader, /also added one book/);
 });
 
 test('known books are caught by id, Goodreads id or close title, so they are never recommended again', () => {
@@ -357,13 +361,13 @@ test('a pick has two separate answers: where it is kept and what she thinks of i
 
 test('Goodreads pushing back: everything pauses together, resumes, and gives up cleanly when it stays blocked', async () => {
   const G = await import('../src/sources/goodreads.js');
-  const realFetch = globalThis.fetch; const cfg = { ...G.gateConfig };
+  const realFetch = globalThis.fetch; const cfg = { ...G.gateConfig }; let stop = () => {};
   Object.assign(G.gateConfig, { gap: 1, pauses: [20, 20, 20], retryWait: 1 });
   const page = '<html>' + 'x'.repeat(3000) + '</html>';
   try {
     // 1) refused seven times, then it answers: the request waits through the pauses and succeeds
     G.resetGoodreadsGate(); let calls = 0; const pauses = [];
-    G.onGoodreadsPause((sec) => pauses.push(sec));
+    stop = G.onGoodreadsPause((sec) => pauses.push(sec));
     globalThis.fetch = async () => (++calls <= 7 ? { status: 202, ok: true, text: async () => '' } : { status: 200, ok: true, text: async () => page });
     const tryOnce = () => G.searchGoodreads('anything').then(() => 'ok', (e) => (e.blocked ? 'blocked' : 'failed'));
     const first = await Promise.all([tryOnce(), tryOnce(), tryOnce()]);
@@ -376,5 +380,16 @@ test('Goodreads pushing back: everything pauses together, resumes, and gives up 
     const all = []; for (let i = 0; i < 6; i++) all.push(await tryOnce());
     assert.ok(all.includes('blocked')); assert.equal(G.goodreadsBlocked(), true);
     const before = calls; assert.equal(await tryOnce(), 'blocked'); assert.equal(calls, before, 'no request is sent while blocked');
-  } finally { globalThis.fetch = realFetch; Object.assign(G.gateConfig, cfg); G.resetGoodreadsGate(); G.onGoodreadsPause(null); }
+    // 3) short blips on different days do not add up to a block: good answers earn the patience back
+    G.resetGoodreadsGate(); let n = 0;
+    globalThis.fetch = async () => (n++ % 13 < 3 ? { status: 202, ok: true, text: async () => '' } : { status: 200, ok: true, text: async () => page });
+    for (let i = 0; i < 70; i++) await tryOnce();
+    assert.equal(G.goodreadsBlocked(), false, 'five recovered blips must not end in a block');
+    // 4) someone waiting for one search is told to come back, not left hanging through a pause
+    G.resetGoodreadsGate(); Object.assign(G.gateConfig, { pauses: [60_000, 60_000, 60_000] });
+    globalThis.fetch = async () => ({ status: 202, ok: true, text: async () => '' });
+    await tryOnce();
+    const t0 = Date.now(); const quick = await G.searchGoodreads('x', { patient: false }).then(() => 'ok', (e) => (e.paused ? 'paused' : e.message));
+    assert.equal(quick, 'paused'); assert.ok(Date.now() - t0 < 500);
+  } finally { globalThis.fetch = realFetch; Object.assign(G.gateConfig, cfg); G.resetGoodreadsGate(); stop(); }
 });

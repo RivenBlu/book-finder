@@ -350,6 +350,8 @@ export function setRecommendationReaction(id, reaction, note = null) {
 }
 // Where a suggested book is kept: on Up next, on Maybe, off this list, or (null) nowhere yet. Each press is undoable.
 export const REMOVED_NOTE = 'Removed from the list';
+// How many picks the "what happened" screen can actually ask about (the number shown on its links).
+export function untoldCount() { return pendingFollowups(null, 1000, { all: true }).length; }
 // One report row as the page needs it: the answer on the pick, her take, and the reading-state shelf the book is really on.
 export function recommendationRow(id) {
   return db.prepare(`SELECT r.id, r.book_id, r.feedback, r.feedback_note, r.reaction, r.reaction_note,
@@ -364,8 +366,9 @@ export function placeRecommendation(id, place) {
   if (RECORDED_OUTCOMES.includes(rec.feedback)) throw Object.assign(new Error('This book already has an outcome. Change it from Past picks.'), { status: 409 });
   const off = (names) => db.prepare(`DELETE FROM shelf_items WHERE book_id = ? AND shelf_id IN (SELECT id FROM shelves WHERE name IN (${names.map(() => '?').join(',')}))`).run(rec.book_id, ...names);
   const shelf = (name) => { const s = db.prepare('SELECT id FROM shelves WHERE name = ?').get(name); if (s) addToShelf({ shelfId: s.id, bookId: rec.book_id, exclusiveStatus: true }); };
-  if (place === 'up_next') { shelf('Up next'); setRecommendationFeedback(id, 'saved'); }
-  else if (place === 'maybe') { shelf('Maybe'); setRecommendationFeedback(id, 'maybe'); }
+  const note = rec.feedback_note === REMOVED_NOTE ? null : rec.feedback_note; // a reason she typed stays when the book only changes shelf
+  if (place === 'up_next') { shelf('Up next'); setRecommendationFeedback(id, 'saved', note); }
+  else if (place === 'maybe') { shelf('Maybe'); setRecommendationFeedback(id, 'maybe', note); }
   else if (place === 'removed') { off(['Up next', 'Maybe']); setRecommendationFeedback(id, 'not_now', REMOVED_NOTE); }
   else { off(['Up next', 'Maybe']); setRecommendationFeedback(id, null); }
   return recommendationRow(id);
@@ -407,9 +410,9 @@ export function outcomeRows() {
                      FROM recommendations r JOIN books b ON b.id = r.book_id JOIN sessions s ON s.id = r.session_id
                      WHERE r.slot NOT IN ('runner_up', 'exception') ORDER BY r.id`).all()
     .map((r) => ({ ...r, fit: P(r.fit), outcome: P(r.outcome), review_digest: P(r.review_digest) }))
-    // A replaced slate stays as evidence, but the same book suggested again (a re-ranked list copies its rows) counts once:
-    // the newest row for each book wins.
-    .filter((r, _, all) => !all.some((x) => x.book_id === r.book_id && x.id > r.id));
+    // A replaced slate stays as evidence, but a re-ranked list copies its rows, so within one session the same book
+    // counts once (its newest row). The same book in another session is a different suggestion and is kept.
+    .filter((r, _, all) => !all.some((x) => x.session_id === r.session_id && x.book_id === r.book_id && x.id > r.id));
 }
 // The owner's own past recommendations (gift slates are about someone else), including replaced slates.
 export function pastRecommendations(limit = 60) {

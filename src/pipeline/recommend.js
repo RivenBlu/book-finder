@@ -1,7 +1,7 @@
 // The recommendation pipeline: brief -> long list -> enrich with real data -> digest real reviews -> final slate.
 // Three shapes: a slate for tonight (full/quick), a READING PATH (books in order over weeks), and a GIFT for someone else.
 import { ask } from '../llm.js';
-import { searchGoodreads, fetchGoodreadsBook, onGoodreadsPause, goodreadsBlocked } from '../sources/goodreads.js';
+import { searchGoodreads, fetchGoodreadsBook, onGoodreadsPause, goodreadsBlocked, goodreadsBlockedUntil } from '../sources/goodreads.js';
 import { searchOpenLibrary } from '../sources/openlibrary.js';
 import { searchLubimyczytac, fetchLubimyczytacBook } from '../sources/lubimyczytac.js';
 import { searchHardcover } from '../sources/hardcover.js';
@@ -87,14 +87,20 @@ export async function runRecommendation(sessionId, { instant = false } = {}) {
   const statusBefore = session.status;
   const briefBefore = session.brief, summaryBefore = session.summary;
   let failed = false;
+  let stopPauseNotices = () => {}, pauseStep = 'enrich';
   updateSession(sessionId, { status: 'researching' });
   try {
+    // Goodreads refused everything a few minutes ago: say so now, before two slow model calls, not after them.
+    if (!instant && goodreadsBlocked()) {
+      const at = goodreadsBlockedUntil();
+      throw new Error(`Goodreads is not answering right now. It limits how many pages one address may open in a while, and today's searches used that up. I will ask it again after ${at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}. Nothing is lost: your answers are saved. Until then "Fast pick" works, because it needs only the books already researched.`);
+    }
     const gift = mode === 'gift';
     const path = mode === 'path';
     const ctx = gift ? { today: new Date().toISOString().slice(0, 10), gift: true, note: 'This slate is a GIFT for the person described in session_answers. The profile owner is not the reader.', session_answers: answersDigest(sessionId) } : fullContext(sessionId);
 
     // 1. Brief
-    log('brief', path ? 'Reading your answers and designing the arc...' : 'Reading your answers and building the brief...');
+    log('brief', path ? 'Reading your answers and designing the arc...' : 'Reading your answers and building the brief...', instant ? { instant: true } : {});
     const brief = (await ask({
       system: path ? PATH_BRIEF_SYSTEM : BRIEF_SYSTEM, schema: path ? PATH_BRIEF_SCHEMA : BRIEF_SCHEMA, tier: getSetting('tier_brief', 'smart'), effort: 'high',
       prompt: `READER CONTEXT (JSON):\n${JSON.stringify(ctx, null, 1)}\n\n${path ? 'Design the reading path brief.' : gift ? 'Write the recommendation brief for the gift recipient.' : 'Write the recommendation brief.'}`,
@@ -117,7 +123,7 @@ export async function runRecommendation(sessionId, { instant = false } = {}) {
       const pool = researchedPool(known);
       if (pool.length < 5) throw new Error('Too few researched books for a fast pick yet. Run a full search first.');
       log('candidates', `Choosing among ${pool.length} books I have already researched`, { candidates: pool.map((b) => `${b.title} - ${b.author}`) });
-      for (const b of pool) { found.push({ candidate: { slot: '', why: '', reread: false }, book: b }); log('enrich', `Ready: ${b.title}`, { book: card(b) }); }
+      for (const b of pool) { found.push({ candidate: { slot: '', why: '', reread: false }, book: b }); log('candidates', `Ready: ${b.title}`, { book: card(b) }); }
     } else {
     log('candidates', 'Thinking about candidates (this is the slow, smart step)...');
     const longlist = (await ask({
@@ -128,7 +134,7 @@ export async function runRecommendation(sessionId, { instant = false } = {}) {
 
     // 3. Enrich with real data (Goodreads page per book, cached)
     log('enrich', 'Fetching real descriptions, ratings and reviews...');
-    onGoodreadsPause((sec) => log('enrich', `Goodreads asked me to slow down. Waiting ${sec >= 60 ? `${Math.round(sec / 60)} min` : `${sec} seconds`}, then carrying on.`));
+    stopPauseNotices = onGoodreadsPause((sec) => log(pauseStep, `Goodreads asked me to slow down. Waiting ${sec >= 60 ? `${Math.round(sec / 60)} min` : `${sec} seconds`}, then carrying on.`));
     let saidBlocked = false;
     const enriched = await mapLimit(longlist, 3, async (c) => {
       try {
@@ -210,6 +216,7 @@ export async function runRecommendation(sessionId, { instant = false } = {}) {
         slate = await secondOpinion(ranked, found, sessionId, log, verdicts);
         // 6b. Must-haves are rules. When fewer than two books pass them, look once more, narrowly, before saying so.
         if (!instant && (brief.must_haves || []).length && slate.picks.length < 2) {
+          pauseStep = 'rescue';
           const added = await rescueRound({ brief, found, verdicts, sessionId, log, polish, excludes, known, web }).catch((e) => { log('rescue', `The second search failed: ${e.message}`); return []; });
           if (added.length) slate = applySecondOpinion({ ...ranked, runners_up: [...(ranked.runners_up || []), ...added.map((i) => ({ candidate_index: i, one_line: '' }))] }, verdicts, found);
         }
@@ -252,7 +259,7 @@ export async function runRecommendation(sessionId, { instant = false } = {}) {
     updateSession(sessionId, statusBefore === 'recommended' ? { status: 'recommended', brief: briefBefore, summary: summaryBefore } : { status: 'interview' });
     throw e;
   } finally {
-    keepers.delete(sessionId); onGoodreadsPause(null);
+    keepers.delete(sessionId); stopPauseNotices();
     // After a failure the session can be retried at once; after success the log stays a minute for late listeners.
     const entry = running.get(sessionId);
     if (failed && entry) entry.failed = true;
@@ -334,9 +341,14 @@ export function applySecondOpinion(ranked, verdicts, found) {
   const inExc = (i) => exceptions.some((q) => q.candidate_index === i);
   const removed = ranked.picks.filter((p) => !inPicks(p.candidate_index) && !inExc(p.candidate_index)).map((p) => title(p.candidate_index));
   const moved = ranked.picks.filter((p) => inExc(p.candidate_index)).map((p) => title(p.candidate_index));
+  // A first-round pick that is no longer one is either still on the page as a borderline "maybe", or set aside.
+  const isBorder = (i) => runners.some((q) => q.candidate_index === i && q.check?.verdict === 'maybe');
+  const border = ranked.picks.filter((p) => !inPicks(p.candidate_index) && !inExc(p.candidate_index) && isBorder(p.candidate_index)).map((p) => title(p.candidate_index));
+  const gone = ranked.picks.filter((p) => !inPicks(p.candidate_index) && !inExc(p.candidate_index) && !isBorder(p.candidate_index)).map((p) => title(p.candidate_index));
   // The ranker's note talks about its own picks; once any of them is removed it would contradict the page, so it is replaced.
   let note = removed.length || moved.length ? [
-    removed.length ? `After a second, stricter look I took out ${removed.join(', ')}; the reasons are under "The brief".` : '',
+    border.length ? `On a second, stricter look ${border.join(', ')} ${border.length > 1 ? 'are each only a "maybe"' : 'is only a "maybe"'}, so ${border.length > 1 ? 'they sit' : 'it sits'} under "Borderline" with the reason for the doubt.` : '',
+    gone.length ? `I took out ${gone.join(', ')}; the reasons are under "Set aside after reading the reviews".` : '',
     moved.length ? `${moved.join(', ')} ${moved.length > 1 ? 'miss' : 'misses'} one of your must-haves, so ${moved.length > 1 ? 'they are' : 'it is'} under "Near misses" below.` : '',
   ].filter(Boolean).join(' ') : ranked.note_to_reader || '';
   // Same when the second look ADDED books: a note that says "a thin slate, only one book" above a list of four is wrong.
@@ -361,6 +373,13 @@ export function applySecondOpinion(ranked, verdicts, found) {
   }
   // Best fit first: the list is read top down, and the number beside each book must agree with its place.
   if (picks.length > 1 && picks.every((p) => p.check)) picks.sort((a, b) => b.check.fit - a.check.fit);
+  // The list is shown best fit first, so a label that claims a rank must agree with the row it lands on:
+  // "best fit" on the third row, or "also a good fit" on the first, reads as a contradiction.
+  picks.forEach((p, i) => {
+    const claimsTop = /^(the )?(best|top|closest|strongest) (fit|match|pick|bet)$/i.test(String(p.slot || '').trim());
+    if (i === 0 && /^also a good fit$/i.test(p.slot || '')) p.slot = 'best fit';
+    else if (i > 0 && claimsTop) p.slot = 'also a good fit';
+  });
   for (const x of exceptions.slice(3)) dropped.push({ candidate_index: x.candidate_index, reason: `Misses your must-have (${x.missing}); fewer exceptions shown.` });
   for (const x of runners.slice(5)) dropped.push({ candidate_index: x.candidate_index, reason: x.one_line || 'Not among the closest calls.' });
   return { ...ranked, picks, runners_up: runners.slice(0, 5), exceptions: exceptions.slice(0, 3), dropped, note_to_reader: note };
@@ -475,7 +494,7 @@ export async function enrichCandidate(c, { polish = false } = {}) {
     const a = r.author && ln && r.author.toLowerCase().includes(ln) ? 1 : 0;
     // Goodreads lists stray one-rating duplicates ("[Tigana] [Author: Kay, Guy Gavriel] [February, 2011]" by "Unknown Author").
     // They match the search words well and carry no reviews, so a real edition must win over them.
-    const junk = /^\[|\[author:/i.test(r.title) || /unknown author/i.test(r.author || '') || (r.ratingsCount != null && r.ratingsCount < 20 && results.some((x) => (x.ratingsCount || 0) >= 500 && titleMatch(x.title, c.title) > 0.6));
+    const junk = /^\[|\[author:/i.test(r.title) || /unknown author/i.test(r.author || '') || (/ by [^()]+$/i.test(r.title) && !/ by /i.test(c.title)) || (r.ratingsCount != null && r.ratingsCount < 20 && results.some((x) => (x.ratingsCount || 0) >= 500 && titleMatch(x.title, c.title) > 0.6));
     const score = t * 0.7 + a * 0.3 + Math.min((r.ratingsCount || 0) / 200000, 0.1) - (junk ? 0.5 : 0);
     if (score > bestScore) { bestScore = score; best = r; }
   }
@@ -570,13 +589,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Manual add: look up a book by free text, fetch it and return it (for shelves and history).
 export async function lookupBook(q) {
-  const results = await searchGoodreads(q, { limit: 6 });
+  const results = await searchGoodreads(q, { limit: 6, patient: false });
   return results;
 }
 export async function importGoodreadsBook(goodreadsId) {
   const existing = getBookByGoodreadsId(goodreadsId);
   if (existing && existing.reviews?.length) return existing;
-  const full = await fetchGoodreadsBook(goodreadsId);
+  const full = await fetchGoodreadsBook(goodreadsId, { patient: false });
   return getBook(upsertBook(full));
 }
 

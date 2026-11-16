@@ -123,7 +123,8 @@ async function router() {
   window.onkeydown = null; setBar(null); document.title = 'Book Finder';
   app.className = ['interview', 'settings', 'check', 'followups', 'report', 'debrief'].includes(name) ? 'narrow' : '';
   app.innerHTML = '<p class="sec ui" style="padding:40px 0">Loading…</p>';
-  try { await (routes[name] || home)(...args); } catch (e) { app.innerHTML = h`<div class="section"><h2>Something broke</h2><p class="sec" style="margin-top:8px">${e.message}</p><p style="margin-top:16px"><a class="btn" href="#home">Home</a></p></div>`; }
+  try { await (routes[name] || home)(...args); } catch (e) { const stale = /no such (session|book|shelf|recommendation)/i.test(e.message || '');
+    app.innerHTML = h`<div class="section"><h2>${stale ? 'This page no longer exists' : 'Something broke'}</h2><p class="sec" style="margin-top:8px">${stale ? 'The link points to something that was deleted, or that never existed on this copy of your data.' : e.message}</p><p style="margin-top:16px"><a class="btn" href="#home">Home</a></p></div>`; }
 }
 window.addEventListener('hashchange', router);
 // Menu overflow hint on narrow screens.
@@ -313,7 +314,7 @@ function askOutcome(r, { index = 0, total = 1, eyebrow = 'What happened', previo
     if (/^[1-6]$/.test(e.key)) { e.preventDefault(); pick(OUTCOMES[Number(e.key) - 1][0]); }
     // Enter saves only when the Save button is on screen (the "forgot" answer has its own two buttons), and never
     // takes over a focused button such as "Skip for now".
-    else if (e.key === 'Enter' && !next.hidden && e.target.tagName !== 'BUTTON') { e.preventDefault(); next.click(); }
+    else if (e.key === 'Enter' && !next.hidden && (e.target.tagName !== 'BUTTON' || e.target.classList.contains('opt'))) { e.preventDefault(); next.click(); }
   };
 }
 
@@ -468,7 +469,8 @@ async function past() {
   const list = await get('/api/past');
   const MODE = { quick: 'quick check-in', path: 'reading path', gift: 'gift for someone else', full: 'full interview' };
   const total = list.reduce((a, s) => a + s.picks.filter((p) => !['runner_up', 'exception'].includes(p.fit?.kind)).length, 0);
-  const untold = list.reduce((a, s) => a + s.picks.filter((p) => !['runner_up', 'exception'].includes(p.fit?.kind) && !p.feedback && s.mode !== 'gift').length, 0);
+  // The number on the button is the number the next screen will really ask about.
+  const untold = (await get('/api/followups/count')).n;
   app.innerHTML = h`<section class="section" style="padding-top:8px"><div class="row between"><h1>Past picks</h1>${untold ? raw(h`<a class="btn sm primary" href="#followups/all">Tell me about the ${untold} without an outcome</a>`) : ''}</div>
     <p class="sec" style="margin-top:12px;max-width:65ch">Every report the tool has written, newest first, and what became of each book. ${total ? `${total} ${total === 1 ? 'pick' : 'picks'} so far.` : ''} Open a report to reread it; use "What happened?" on any book to record, rate, review or correct it. Everything you say here feeds the next recommendation.</p></section>
   ${list.length ? list.map((s) => raw(h`<section class="section pastsess">
@@ -628,7 +630,9 @@ function renderProgress(id) {
   const drawTop = () => {
     if (!alive()) return;
     const cur = current(); const done = cur === 'done';
-    const steps = STEPS.filter((x) => x[0] !== 'rescue' || log.some((l) => l.step === 'rescue'));
+    // A fast pick thinks of no new books and fetches nothing: two of the steps do not exist for it.
+    const fast = log.some((l) => l.instant);
+    const steps = STEPS.filter((x) => (x[0] !== 'rescue' || log.some((l) => l.step === 'rescue')) && !(fast && x[0] === 'enrich')).map((x) => (fast && x[0] === 'candidates' ? ['candidates', 'Gathering the books already researched', 5] : x));
     const total = steps.reduce((a, x) => a + x[2], 0);
     const ci = Math.max(0, steps.findIndex((x) => x[0] === cur));
     const before = steps.slice(0, ci).reduce((a, x) => a + x[2], 0);
@@ -637,6 +641,7 @@ function renderProgress(id) {
     const leftSec = done ? 0 : Math.max(20, total - before - inStep * steps[ci][2]);
     const err = log.find((l) => l.step === 'error');
     const brief = log.find((l) => l.brief)?.brief;
+    const hl = document.getElementById('howLong'); if (hl && fast) hl.textContent = 'A fast pick takes about five minutes and keeps going if you leave the page.';
     const wasOpen = [...top.querySelectorAll('details')].map((d) => d.open); // redrawn every second: keep what she opened open
     queueMicrotask(() => top.querySelectorAll('details').forEach((d, i) => { if (wasOpen[i]) d.open = true; }));
     top.innerHTML = h`
@@ -689,7 +694,7 @@ function renderProgress(id) {
   fetch(`/api/sessions/${id}/kept`).then((r) => r.json()).then((j) => { for (const k of j.kept || []) kept.add(k); drawCards(); }).catch(() => {});
   // Something to do meanwhile, and a way to be called back.
   const canNotify = 'Notification' in window;
-  foot.innerHTML = h`<div class="meanwhile"><span class="cap sec">This takes about ten minutes and keeps going if you leave the page.</span>${canNotify ? raw(h`<button class="btn sm" id="notifyBtn">${Notification.permission === 'granted' ? '✓ I will tell you when it is ready' : 'Tell me when it is ready'}</button>`) : ''}<span id="meanLinks"></span></div>`;
+  foot.innerHTML = h`<div class="meanwhile"><span class="cap sec" id="howLong">This takes about ten minutes and keeps going if you leave the page.</span>${canNotify ? raw(h`<button class="btn sm" id="notifyBtn">${Notification.permission === 'granted' ? '✓ I will tell you when it is ready' : 'Tell me when it is ready'}</button>`) : ''}<span id="meanLinks"></span></div>`;
   const nb = document.getElementById('notifyBtn');
   if (nb) nb.onclick = async () => { const p = await Notification.requestPermission(); nb.textContent = p === 'granted' ? '✓ I will tell you when it is ready' : 'Notifications are blocked in this browser'; };
   fetch('/api/state').then((r) => r.json()).then((st) => {
@@ -1120,7 +1125,7 @@ function wireShelfButtons(recs = []) {
     const mine = recs.find((x) => x.id === Number(b.dataset.rec)); if (mine) Object.assign(mine, { feedback: fb, feedback_note: note, shelf });
     if (rowEl && mine && RECORDED.includes(fb)) { const keepEl = rowEl.querySelector('[data-keep]'); if (keepEl) keepEl.outerHTML = h`<span class="actgrp"><span class="actlbl">Outcome</span><span class="outcome">${labelFeedback(fb)}</span><a class="cap" href="#past">change</a></span>`; }
     rowEl?.querySelectorAll('.tog[data-place]').forEach((x) => x.setAttribute('aria-pressed', String((shelf === 'Up next' && x.dataset.place === 'up_next') || (shelf === 'Maybe' && x.dataset.place === 'maybe'))));
-    const el = app.querySelector(`[data-saved="${b.dataset.rec}"]`); if (el) el.textContent = rowEl ? (mine ? rowNote(mine) : '') : `✓ ${shelf}`;
+    const el = app.querySelector(`[data-saved="${b.dataset.rec}"]`); if (el) el.textContent = rowEl?.querySelector('.tog') ? (mine ? rowNote(mine) : '') : `✓ ${shelf}`;
     toast(`Saved to ${shelf}`);
   });
   const mark = (rec, text) => { const el = app.querySelector(`[data-saved="${rec}"]`); if (el) el.textContent = text; };
@@ -1159,6 +1164,7 @@ function wireShelfButtons(recs = []) {
     const placed = !!placeOf(row) || RECORDED.includes(row.feedback);
     toast(on ? 'Taken back' : kind === 'love' ? (placed ? 'Noted: a great suggestion. More like this in future.' : 'Noted: a great suggestion. To keep the book, press Up next or Maybe.') : (row.feedback_note === REMOVED ? 'Noted: a bad suggestion. I will steer away from books like this.' : 'Noted: a bad suggestion. It stays on the list until you press Remove.'));
   });
+  if (!document.getElementById('nudgeSec')) app.querySelectorAll('[data-more] option[value="more"], [data-more] option[value="less"]').forEach((o) => o.remove());
   app.querySelectorAll('[data-more]').forEach((sel) => sel.onchange = async () => {
     const v = sel.value; sel.value = ''; if (!v) return;
     if (v === 'more' || v === 'less') return app.onBfNudge?.(`${v} like ${sel.dataset.title}`);
@@ -1332,6 +1338,7 @@ async function shelves(activeId) {
 // ---------- profile ----------
 async function profile() {
   const p = await get('/api/profile');
+  const askable = (await get('/api/followups/count')).n;
   const dna = p.facts.find((f) => f.key === 'reader_dna');
   const answered = p.facts.filter((f) => f.source === 'answer' && f.key !== 'onboarding_completed');
   const inferred = p.facts.filter((f) => (f.source === 'inferred' || (f.source === 'manual' && f.note === 'Confirmed by the reader')) && !['reader_dna', 'questions_next_time'].includes(f.key));
@@ -1349,7 +1356,7 @@ async function profile() {
     <p class="row" style="margin-top:16px"><a class="btn sm" href="#report">Reading report</a><a class="btn sm" href="#history">History and import</a></p>
   </section>
   <section class="section"><h2>Mood over time</h2><p class="cap sec" style="margin-top:4px">Every check-in, oldest to newest. Hover a point for the whole session.</p>${moodChart(moods)}</section>
-  <section class="section"><h2>What you say versus what you do</h2><p class="cap sec" style="margin-top:4px">What you asked for in each mood, against what you actually finished. ${ins.sayVsDo.told} of ${ins.sayVsDo.n} picks have an outcome${ins.sayVsDo.n > ins.sayVsDo.told ? raw(h`; <a href="#followups/all">tell me about the rest</a>`) : ''}.</p>
+  <section class="section"><h2>What you say versus what you do</h2><p class="cap sec" style="margin-top:4px">What you asked for in each mood, against what you actually finished. ${ins.sayVsDo.told} of ${ins.sayVsDo.n} picks have an outcome${askable ? raw(h`; <a href="#followups/all">tell me about ${askable === 1 ? 'one more' : `${askable} more`}</a>`) : ''}.</p>
     ${ins.sayVsDo.sentences.length ? raw(h`<div class="msum">${ins.sayVsDo.sentences.map((x) => raw(h`<p>${x}</p>`))}</div>`) : raw('<p class="sec" style="margin-top:12px">Patterns appear once a few picks have outcomes. The home page asks after each session.</p>')}
     ${Object.values(ins.sayVsDo.need).some((g) => g.finished || g.dropped) ? raw(h`<div class="tablewrap" style="margin-top:16px"><table><tr><th>You asked the book to</th><th class="num">Picks</th><th class="num">Finished</th><th class="num">Dropped</th><th>Finished books were</th><th>Dropped books were</th></tr>${Object.entries(ins.sayVsDo.need).map(([k, g]) => raw(h`<tr><td>${k}</td><td class="num">${g.picks}</td><td class="num">${g.finished}</td><td class="num">${g.dropped}</td><td class="sec">${g.finishedTags.join(', ')}</td><td class="sec">${g.droppedTags.join(', ')}</td></tr>`))}</table></div>`) : ''}
   </section>
@@ -1533,12 +1540,13 @@ async function history() {
 // ---------- reading report ----------
 async function report(period = 'quarter') {
   const st = await get(`/api/report?period=${period}`);
+  const askable = (await get('/api/followups/count')).n;
   const rc = st.recommendations;
   const row = (k, v) => raw(h`<div class="stat"><span class="tabular big">${v}</span><span class="cap sec">${k}</span></div>`);
   app.innerHTML = h`<section class="section" style="padding-top:8px"><div class="row between"><h1>Reading report</h1><div class="row">${[['month', 'Month'], ['quarter', 'Quarter'], ['year', 'Year']].map(([k, l]) => raw(h`<a class="btn sm ${k === period ? 'on' : ''}" href="#report/${k}">${l}</a>`))}</div></div>
     <p class="cap sec" style="margin-top:8px">Since ${st.from}. Honest accounting for the tool as much as for you.</p>
     <div class="stats">${row('picks', rc.picks)}${row('finished', rc.finished)}${row('dropped', rc.dropped)}${row('kept for later', rc.later)}${row('rejected', rc.rejected)}${row('no outcome yet', rc.untold)}${row('check-ins', st.moods.checkins)}${row('verdicts asked', st.verdicts)}${row('lines underlined', st.notes)}</div>
-    ${rc.untold ? raw(h`<p class="cap" style="margin-top:8px"><a href="#followups/all">Tell me what happened with the ${rc.untold} without an outcome</a></p>`) : ''}
+    ${askable ? raw(h`<p class="cap" style="margin-top:8px"><a href="#followups/all">Tell me what happened with ${askable === 1 ? 'the one' : `the ${askable}`} I can still ask about</a></p>`) : ''}
   </section>
   <section class="section"><h2>What worked</h2>
     ${Object.keys(st.by_slot).length ? raw(h`<div class="tablewrap" style="margin-top:12px"><table><tr><th>Kind of pick</th><th class="num">Picks</th><th class="num">Finished</th><th class="num">Dropped</th></tr>${slotRows(st.by_slot).map(([k, g]) => raw(h`<tr><td>${k}</td><td class="num">${g.picks}</td><td class="num">${g.finished}</td><td class="num">${g.dropped}</td></tr>`))}</table></div>`) : raw('<p class="sec" style="margin-top:8px">No picks in this period.</p>')}

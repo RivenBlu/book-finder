@@ -20,11 +20,15 @@ export function decodeHtml(s = '') {
 // three times in a row everything pauses together (45 s, then 90 s, then 3 min) instead of each book failing on its own.
 // After the third pause the address counts as blocked for now, and callers stop asking.
 export const gateConfig = { gap: 650, pauses: [45_000, 90_000, 180_000], retryWait: 1500 };
-const gate = { next: 0, until: 0, strikes: 0, level: 0, blockedAt: 0, listener: null };
-export function onGoodreadsPause(fn) { gate.listener = fn; }
+const gate = { next: 0, until: 0, strikes: 0, level: 0, ok: 0, blockedAt: 0, listeners: new Set() };
+// Returns a function that stops the notices. Several runs may listen at once.
+export function onGoodreadsPause(fn) { if (!fn) return () => {}; gate.listeners.add(fn); return () => gate.listeners.delete(fn); }
 // Blocked: Goodreads kept refusing through all the pauses. Callers should stop for now; it clears itself after 20 minutes.
-export function goodreadsBlocked() { if (gate.blockedAt && Date.now() - gate.blockedAt > 20 * 60_000) { gate.blockedAt = 0; gate.level = 0; gate.strikes = 0; } return !!gate.blockedAt; }
-export function resetGoodreadsGate() { Object.assign(gate, { next: 0, until: 0, strikes: 0, level: 0, blockedAt: 0 }); }
+const BLOCK_MS = 20 * 60_000;
+export function goodreadsBlocked() { if (gate.blockedAt && Date.now() - gate.blockedAt > BLOCK_MS) { gate.blockedAt = 0; gate.level = 0; gate.strikes = 0; } return !!gate.blockedAt; }
+export function goodreadsBlockedUntil() { return goodreadsBlocked() ? new Date(gate.blockedAt + BLOCK_MS) : null; }
+export function goodreadsPausedFor() { return Math.max(0, Math.round((gate.until - Date.now()) / 1000)); }
+export function resetGoodreadsGate() { Object.assign(gate, { next: 0, until: 0, strikes: 0, level: 0, ok: 0, blockedAt: 0 }); }
 async function turn() {
   const now = Date.now();
   const at = Math.max(now, gate.next, gate.until);
@@ -32,27 +36,33 @@ async function turn() {
   if (at > now) await sleep(at - now);
 }
 function pushedBack() {
-  gate.strikes++;
-  if (gate.strikes < 3 || Date.now() < gate.until) return;
+  if (Date.now() < gate.until) return; // a request that was already under way when the pause began: not a new refusal
+  gate.strikes++; gate.ok = 0;
+  if (gate.strikes < 3) return;
   gate.strikes = 0;
   if (gate.level >= gateConfig.pauses.length) { gate.blockedAt = Date.now(); return; }
   const ms = gateConfig.pauses[gate.level++];
   gate.until = Date.now() + ms; gate.next = Math.max(gate.next, gate.until);
-  try { gate.listener?.(Math.round(ms / 1000)); } catch {}
+  for (const fn of gate.listeners) { try { fn(Math.round(ms / 1000)); } catch {} }
 }
+// Goodreads answering normally again earns the patience back: eight good answers in a row undo one pause level.
+function answered() { gate.strikes = 0; if (++gate.ok >= 8) { gate.ok = 0; gate.level = Math.max(0, gate.level - 1); } }
 function blockedError() { return Object.assign(new Error('Goodreads is not answering right now'), { blocked: true }); }
-async function getHtml(url, { tries = 4 } = {}) {
+// patient: a background run waits out a pause. A person waiting for one search does not: they are told to try again shortly.
+// count: the start-up health check must not use up the run's patience.
+async function getHtml(url, { tries = 4, patient = true, count = true } = {}) {
   let last = '';
   for (let i = 0; i < tries; i++) {
     if (goodreadsBlocked()) throw blockedError();
+    if (!patient && goodreadsPausedFor() > 5) throw Object.assign(new Error(`Goodreads asked for a short pause. Try again in about ${goodreadsPausedFor() > 60 ? `${Math.ceil(goodreadsPausedFor() / 60)} minutes` : 'a minute'}.`), { paused: true });
     await turn();
     if (goodreadsBlocked()) throw blockedError();
     const r = await fetch(url, { headers: H, signal: AbortSignal.timeout(20000) });
-    if (r.status === 429 || r.status === 503) { last = `goodreads ${r.status}`; pushedBack(); await sleep(gateConfig.retryWait * (i + 1)); continue; }
+    if (r.status === 429 || r.status === 503) { last = `goodreads ${r.status}`; if (count) pushedBack(); await sleep(gateConfig.retryWait * (i + 1)); continue; }
     if (!r.ok) throw new Error(`goodreads ${r.status}`);
     const html = await r.text();
-    if (r.status === 202 || html.length < 2000) { last = 'goodreads throttled (empty 202)'; pushedBack(); await sleep(gateConfig.retryWait * (i + 1) * (1 + Math.random() * 0.6)); continue; }
-    gate.strikes = 0;
+    if (r.status === 202 || html.length < 2000) { last = 'goodreads throttled (empty 202)'; if (count) pushedBack(); await sleep(gateConfig.retryWait * (i + 1) * (1 + Math.random() * 0.6)); continue; }
+    answered();
     return html;
   }
   if (goodreadsBlocked()) throw blockedError();
@@ -60,9 +70,9 @@ async function getHtml(url, { tries = 4 } = {}) {
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-export async function searchGoodreads(q, { limit = 8 } = {}) {
+export async function searchGoodreads(q, { limit = 8, patient = true, count = true } = {}) {
   const url = `https://www.goodreads.com/search?q=${encodeURIComponent(q)}`;
-  return parseGoodreadsSearch(await getHtml(url), { limit });
+  return parseGoodreadsSearch(await getHtml(url, { patient, count }), { limit });
 }
 export function parseGoodreadsSearch(html, { limit = 8 } = {}) {
   const rows = html.split('itemtype="http://schema.org/Book"').slice(1);
@@ -86,9 +96,9 @@ export function parseGoodreadsSearch(html, { limit = 8 } = {}) {
   return out;
 }
 
-export async function fetchGoodreadsBook(goodreadsId) {
+export async function fetchGoodreadsBook(goodreadsId, { patient = true, count = true } = {}) {
   const url = `https://www.goodreads.com/book/show/${goodreadsId}`;
-  return parseGoodreadsBook(await getHtml(url), goodreadsId, { url, critical: true });
+  return parseGoodreadsBook(await getHtml(url, { patient, count }), goodreadsId, { url, critical: true });
 }
 export async function parseGoodreadsBook(html, goodreadsId, { url = `https://www.goodreads.com/book/show/${goodreadsId}`, critical = false } = {}) {
   const i = html.indexOf('__NEXT_DATA__');
