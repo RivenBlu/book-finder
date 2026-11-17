@@ -596,3 +596,7 @@ section:has(> .mtip) { position: relative; }
 /* a book removed in this view stays out of a printout too */
 .rowpick.removed > :not(.rowgone) { display: none !important; }
 @media print { .rowpick.removed { display: none !important; } }
+
+.actions .onshelf { margin-right: 4px; }
+.actions .onshelf b { color: var(--ink); }
+.actions .actsep { width: 1px; align-self: stretch; background: var(--line); margin: 0 6px; }

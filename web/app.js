@@ -1185,6 +1185,31 @@ function wireShelfButtons(recs = []) {
 }
 
 // ---------- book detail ----------
+// ---------- one way to move a book between shelves, shared by the Shelves page and the book page ----------
+const STATE_SHELVES = ['Reading now', 'Up next', 'Someday', 'Maybe', 'Finished', 'Did not finish', 'Not for me'];
+// The same list in the same order everywhere: every shelf the book is not on.
+function moveSelect(list, onIds) {
+  return raw(h`<select class="btn sm move" style="width:auto" aria-label="${onIds.length ? 'Move to another shelf' : 'Add to a shelf'}"><option value="">${onIds.length ? 'Move to…' : 'Add to a shelf…'}</option>${list.filter((s) => !onIds.includes(s.id)).map((s) => raw(h`<option value="${s.id}">${s.name}</option>`))}</select>`);
+}
+// from: the shelf rows the book leaves ({ name, item_id, has_verdict }). Returns false when the reader backed out.
+async function moveBook({ bookId, target, from = [], note = null }) {
+  const losing = from.find((f) => f.has_verdict && ['Finished', 'Did not finish'].includes(f.name));
+  if (losing && !(await confirmBox(`Move it off ${losing.name}?`, { body: 'Your rating and what you wrote about it on that shelf will be deleted.' }))) return false;
+  if (['Not for me', 'Did not finish'].includes(target.name)) { const w = await askLine('Why? One line helps the tool learn.'); if (w === null) return false; if (w) note = w; }
+  await post(`/api/shelves/${target.id}/items`, { bookId, note });
+  // A book has one reading state, so the server swaps state shelves itself; any other origin is removed here.
+  for (const f of from) if (!(STATE_SHELVES.includes(target.name) && STATE_SHELVES.includes(f.name))) await del(`/api/shelf-items/${f.item_id}`);
+  toast(from.length ? `Moved to ${target.name}` : `Added to ${target.name}`);
+  return true;
+}
+async function removeBook(from) {
+  const losing = from.find((f) => f.has_verdict);
+  if (losing && !(await confirmBox(`Remove it from ${losing.name}?`, { body: 'Your rating and what you wrote about it on that shelf will be deleted.' }))) return false;
+  for (const f of from) await del(`/api/shelf-items/${f.item_id}`);
+  toast(from.length > 1 ? 'Removed from your shelves' : `Removed from ${from[0].name}`);
+  return true;
+}
+
 async function book(id) {
   const b = await get(`/api/books/${id}`);
   const shelves = await get('/api/shelves');
@@ -1203,8 +1228,11 @@ async function book(id) {
       <p class="prose" style="margin-top:16px">${b.description}</p>
       <p class="cap" style="margin-top:8px"><a href="${b.url}" target="_blank" rel="noopener">Open on Goodreads ↗</a></p>
       ${getLinks(b)}<p class="cap noprint" style="margin-top:6px"><button class="linkbtn" id="plCheck">${b.extra?.lubimyczytac ? 'Re-check the Polish edition' : 'Check for a Polish edition and audiobook'}</button></p>
-      <div class="actions">${['Reading now', 'Up next', 'Someday', 'Maybe', 'Not for me'].map((n) => raw(h`<button class="btn sm" data-add="${n}">${n}</button>`))}<button class="btn sm primary" id="debFinished">Finished it</button><button class="btn sm" id="debDropped">Did not finish</button><span class="cap sec">On: ${b.shelves.map((s) => s.name).join(', ') || 'no shelf yet'}</span></div>
-      ${b.rec ? raw(h`<p class="cap sec" style="margin-top:8px">Suggested in <a href="#results/${b.rec.session_id}">a report</a>${b.rec.feedback ? `; outcome so far: ${labelFeedback(b.rec.feedback)}` : '; no outcome recorded yet'}.</p>`) : ''}
+      <div class="actions"><span class="onshelf cap">${b.shelves.length ? raw(h`On your shelf: <b>${b.shelves.map((x) => x.name).join(', ')}</b>`) : 'Not on a shelf yet'}</span>
+        ${moveSelect(shelves, b.shelves.map((x) => x.id))}
+        ${b.shelves.length ? raw(h`<button class="btn sm ghost" id="shelfRm">Remove</button>`) : ''}
+        ${b.shelves.some((x) => ['Finished', 'Did not finish'].includes(x.name)) ? (b.debrief ? '' : raw(h`<button class="btn sm" id="debTell">Tell me about it</button>`)) : raw(h`<span class="actsep"></span><button class="btn sm" id="debFinished">Finished it</button><button class="btn sm ghost" id="debDropped">Dropped it</button>`)}</div>
+      ${b.rec ? raw(h`<p class="cap sec" style="margin-top:8px">Suggested in <a href="#results/${b.rec.session_id}">a report</a>${RECORDED.includes(b.rec.feedback) ? `; outcome so far: ${labelFeedback(b.rec.feedback)}` : '; no outcome recorded yet'}.</p>`) : ''}
     </div></article>
   ${b.debrief ? raw(h`<section class="section"><div class="row between"><h2>What you said after reading</h2><button class="btn sm" id="debAgain">Debrief again</button></div>${debriefSummary(b.debrief)}</section>`) : ''}
   <section class="section"><div class="row between"><h2>Reading it?</h2><div class="row"><label class="cap sec" for="pageIn">I am on page</label><input type="number" id="pageIn" min="0" value="${b.progress || ''}" style="width:110px" placeholder="${b.pages ? 'of ' + b.pages : ''}"><button class="btn sm" id="pageSave">Save</button></div></div>
@@ -1223,13 +1251,18 @@ async function book(id) {
     ${d ? raw(h`<p style="margin-top:12px;font-size:20px" class="prose">${d.one_line}</p><dl class="facts">${glance(d, b)}<dt>Praise</dt><dd>${d.praise.map((p) => raw(h`${p}<br>`))}</dd><dt>Complaints</dt><dd>${d.complaints.map((p) => raw(h`${p}<br>`))}</dd><dt>Who loves it</dt><dd>${d.who_loves_it}</dd><dt>Who should skip</dt><dd>${d.who_should_skip}</dd><dt>First 100 pages</dt><dd>${d.first_100_pages}</dd><dt>Content notes</dt><dd>${d.content_notes.join(', ') || 'none noted'}</dd><dt>Appeal</dt><dd><span class="row" style="gap:6px">${[d.appeal.pace, ...d.appeal.tone, ...d.appeal.style, ...d.appeal.moods].filter(Boolean).slice(0, 10).map((t) => raw(h`<span class="chip">${t}</span>`))}</span></dd></dl>${d.quotes.map((q) => raw(h`<div class="quote">“${q}”</div>`))}`) : raw(h`<p class="sec" style="margin-top:8px">No digest yet.</p><p style="margin-top:12px"><button class="btn" id="digest">Read the reviews now</button></p>`)}
     <details><summary>${b.reviews.length} real reviews, most liked first</summary>${b.reviews.slice(0, 15).map((r) => raw(h`<div class="review"><div class="m">${r.rating ? '★ ' + r.rating : ''} · ${r.likes} likes · ${r.createdAt || ''}${r.source === 'lubimyczytac' ? ' · lubimyczytac.pl' : ''}</div>${r.text.slice(0, 1200)}</div>`))}</details>
   </section>`;
-  app.querySelectorAll('[data-add]').forEach((btn) => btn.onclick = async () => {
-    const shelf = shelves.find((s) => s.name === btn.dataset.add);
-    let note = null; if (['Not for me', 'Did not finish'].includes(shelf.name)) { note = await askLine('Why? One line helps the tool learn.'); if (note === null) return; }
-    await post(`/api/shelves/${shelf.id}/items`, { bookId: b.id, note }); toast(`Added to ${shelf.name}`); book(id);
-  });
-  document.getElementById('debFinished').onclick = () => goDebrief(b.id, b.rec?.id, 'finished');
-  document.getElementById('debDropped').onclick = () => goDebrief(b.id, b.rec?.id, 'dropped');
+  app.querySelector('.actions .move').onchange = async (e) => {
+    const target = shelves.find((x) => String(x.id) === e.target.value); if (!target) return;
+    // Leaving one shelf for another is a move. A book already on several shelves only swaps its reading state.
+    const from = b.shelves.length === 1 ? b.shelves : b.shelves.filter((x) => STATE_SHELVES.includes(x.name) && STATE_SHELVES.includes(target.name));
+    if (!(await moveBook({ bookId: b.id, target, from }).catch((err) => { toast(err.message); return false; }))) { e.target.value = ''; return; }
+    book(id);
+  };
+  const srm = document.getElementById('shelfRm'); if (srm) srm.onclick = async () => { if (await removeBook(b.shelves)) book(id); };
+  const onShelf = (n) => b.shelves.some((x) => x.name === n);
+  const df = document.getElementById('debFinished'); if (df) df.onclick = () => goDebrief(b.id, b.rec?.id, 'finished');
+  const dd = document.getElementById('debDropped'); if (dd) dd.onclick = () => goDebrief(b.id, b.rec?.id, 'dropped');
+  const dt = document.getElementById('debTell'); if (dt) dt.onclick = () => goDebrief(b.id, b.rec?.id, onShelf('Finished') ? 'finished' : 'dropped');
   const da = document.getElementById('debAgain'); if (da) da.onclick = () => goDebrief(b.id, b.rec?.id, b.debrief.outcome);
   const dg = document.getElementById('digest'); if (dg) dg.onclick = act(dg, async () => { dg.textContent = 'Reading…'; try { await post(`/api/books/${id}/digest`); } catch (e) { dg.textContent = 'Read the reviews now'; throw e; } book(id); });
   document.getElementById('pageSave').onclick = async () => {
@@ -1277,7 +1310,7 @@ async function shelves(activeId) {
             <textarea class="verdict" placeholder="${active.name === 'Finished' ? 'What worked, what did not, would you reread? This feeds your Reader DNA.' : 'For example: 80 pages; nothing happened and I disliked the narrator.'}">${it.my_verdict?.text || ''}</textarea>`) : ''}
           <div class="row" style="margin-top:12px"><button class="btn sm primary save">Save</button>
             ${verdictShelf ? raw(h`<button class="btn sm deb" data-book="${it.book_id}" data-outcome="${active.name === 'Finished' ? 'finished' : 'dropped'}">${it.my_verdict?.debrief_id ? 'Debrief again' : 'Tell me about it'}</button>`) : active.name === 'Reading now' ? raw(h`<button class="btn sm deb" data-book="${it.book_id}" data-outcome="finished">Finished it</button><button class="btn sm ghost deb" data-book="${it.book_id}" data-outcome="dropped">Dropped it</button>`) : ''}
-            <select class="btn sm move" style="width:auto"><option value="">Move to…</option>${list.filter((s) => s.id !== active.id).map((s) => raw(h`<option value="${s.id}">${s.name}</option>`))}</select>
+            ${moveSelect(list, [active.id])}
             <button class="btn sm ghost rm">Remove</button></div>
         </div></div>`)) : raw(h`<div class="empty">${raw(STACK)}<div class="big">Nothing here yet</div><div>Save a recommendation from a results page, or add a book by search, and it lands on this shelf.</div><a class="btn primary" href="#home">Find a book</a></div>`)}</div>
   </section>`;
@@ -1320,16 +1353,13 @@ async function shelves(activeId) {
       await patch(`/api/shelf-items/${id}`, { note: el.querySelector('.note').value, my_rating: ri ? Number(ri.dataset.r) || null : null, my_verdict: v ? { text: v.value } : null });
       toast('Saved');
     };
-    el.querySelector('.rm').onclick = async () => { await del(`/api/shelf-items/${id}`); shelves(active.id); };
+    const it = items.find((x) => String(x.id) === id);
+    const here = [{ name: active.name, item_id: it.id, has_verdict: it.my_rating != null || !!(it.my_verdict?.text || it.my_verdict?.debrief_id) }];
+    el.querySelector('.rm').onclick = async () => { if (await removeBook(here)) shelves(active.id); };
     el.querySelectorAll('.deb').forEach((b) => b.onclick = () => goDebrief(b.dataset.book, 0, b.dataset.outcome));
     el.querySelector('.move').onchange = async (e) => {
       const target = list.find((s) => String(s.id) === e.target.value); if (!target) return;
-      const it = items.find((x) => String(x.id) === id);
-      let note = it.note; if (['Not for me', 'Did not finish'].includes(target.name)) { const w = await askLine('Why? One line.'); if (w) note = w; }
-      await post(`/api/shelves/${target.id}/items`, { bookId: it.book_id, note });
-      // Moving between two reading-state shelves is done by the server (a book has one state); any other move removes it here.
-      const STATE = ['Reading now', 'Up next', 'Someday', 'Maybe', 'Finished', 'Did not finish', 'Not for me'];
-      if (!(STATE.includes(target.name) && STATE.includes(active.name))) await del(`/api/shelf-items/${id}`);
+      if (!(await moveBook({ bookId: it.book_id, target, from: here, note: it.note }).catch((err) => { toast(err.message); return false; }))) { e.target.value = ''; return; }
       shelves(active.id);
     };
   });

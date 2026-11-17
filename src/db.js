@@ -472,7 +472,7 @@ export function readingNow() {
                      FROM shelf_items i JOIN shelves s ON s.id = i.shelf_id JOIN books b ON b.id = i.book_id WHERE s.name = 'Reading now' ORDER BY i.added_at DESC`).all();
 }
 export function shelvesForBook(bookId) {
-  return db.prepare('SELECT s.id, s.name FROM shelf_items i JOIN shelves s ON s.id = i.shelf_id WHERE i.book_id = ?').all(bookId);
+  return db.prepare(`SELECT s.id, s.name, i.id AS item_id, (i.my_rating IS NOT NULL OR (i.my_verdict IS NOT NULL AND i.my_verdict NOT IN ('null', '{}', '{"text":""}'))) AS has_verdict FROM shelf_items i JOIN shelves s ON s.id = i.shelf_id WHERE i.book_id = ? ORDER BY s.sort, s.id`).all(bookId);
 }
 export function allShelvedBooks() {
   return db.prepare(`SELECT b.id, b.title, b.author, s.name AS shelf, i.note, i.my_rating, i.my_verdict, i.added_at
